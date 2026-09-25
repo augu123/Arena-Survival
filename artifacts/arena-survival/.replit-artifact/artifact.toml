@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Arena Survival"
+description = "A fast-paced 3D arena survival game built with Three.js. Move, aim, and fight increasingly dangerous enemy waves while tracking health and score."
+version = "1.0.0"
+id = "artifacts/arena-survival"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21565
+
+[services.development]
+run = "pnpm --filter @workspace/arena-survival run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/arena-survival", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/arena-survival/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21565"
+BASE_PATH = "/"
