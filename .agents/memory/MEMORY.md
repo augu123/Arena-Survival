@@ -1,0 +1,1 @@
+- [WebGL preview fallback](webgl-preview-fallback.md) — detect missing WebGL before mounting R3F; Canvas-level fallback did not catch context creation failures in preview.

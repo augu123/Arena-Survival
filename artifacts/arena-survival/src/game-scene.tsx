@@ -1,4 +1,4 @@
-import { type MutableRefObject, useEffect, useRef, useState } from 'react';
+import { type MutableRefObject, type PointerEvent, useEffect, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 
@@ -290,7 +290,241 @@ function CameraAndLights() {
   );
 }
 
+function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause }: SceneProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const engine = useRef<Engine>(freshEngine());
+  const hudRef = useRef(onHud);
+  const gameOverRef = useRef(onGameOver);
+  const pauseRef = useRef(onPause);
+  hudRef.current = onHud;
+  gameOverRef.current = onGameOver;
+  pauseRef.current = onPause;
+
+  useEffect(() => {
+    engine.current = freshEngine();
+  }, [resetKey]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      inputRef.current.keys[event.code] = event.type === 'keydown';
+      if (event.type === 'keydown' && event.code === 'KeyP' && active) pauseRef.current();
+      if (event.type === 'keydown' && event.code === 'Space') inputRef.current.fire = true;
+      if (event.type === 'keyup' && event.code === 'Space') inputRef.current.fire = false;
+    };
+    const release = () => { inputRef.current.fire = false; inputRef.current.keys = {}; };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKey);
+    window.addEventListener('blur', release);
+    window.addEventListener('pointerup', release);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKey);
+      window.removeEventListener('blur', release);
+      window.removeEventListener('pointerup', release);
+    };
+  }, [active, inputRef]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+
+    let frame = 0;
+    let previousTime = 0;
+    let hudClock = 0;
+    const size = { width: 0, height: 0, scale: 1 };
+    const resize = () => {
+      const bounds = canvas.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      size.width = Math.max(1, bounds.width);
+      size.height = Math.max(1, bounds.height);
+      size.scale = Math.min(size.width, size.height) / 19;
+      canvas.width = Math.round(size.width * dpr);
+      canvas.height = Math.round(size.height * dpr);
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(canvas);
+
+    const draw = () => {
+      const width = size.width;
+      const height = size.height;
+      const game = engine.current;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#0f1320';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const dpr = canvas.width / width;
+      ctx.setTransform(dpr * size.scale, 0, 0, dpr * size.scale, dpr * width / 2, dpr * height / 2);
+
+      ctx.fillStyle = '#171b2a';
+      ctx.fillRect(-8.65, -8.65, 17.3, 17.3);
+      ctx.strokeStyle = 'rgba(97,119,149,.28)';
+      ctx.lineWidth = .018;
+      for (let line = -8; line <= 8; line += 1) {
+        ctx.beginPath(); ctx.moveTo(line, -8.5); ctx.lineTo(line, 8.5); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-8.5, line); ctx.lineTo(8.5, line); ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(246,194,61,.68)';
+      ctx.lineWidth = .045;
+      ctx.beginPath(); ctx.arc(0, 0, 3.25, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(124,145,175,.55)';
+      ctx.lineWidth = .075;
+      ctx.strokeRect(-8.65, -8.65, 17.3, 17.3);
+
+      for (let index = 0; index < 8; index += 1) {
+        const points: Array<[number, number]> = [
+          [-8.7, -8.7], [8.7, -8.7], [-8.7, 8.7], [8.7, 8.7],
+          [-8.7, 0], [8.7, 0], [0, -8.7], [0, 8.7],
+        ];
+        const [x, y] = points[index];
+        ctx.fillStyle = '#3a425a';
+        ctx.fillRect(x - .23, y - .28, .46, .56);
+        ctx.fillStyle = index % 2 ? '#24d6ed' : '#f6c23d';
+        ctx.fillRect(x - .08, y - .31, .16, .045);
+      }
+
+      for (const bullet of game.bullets) {
+        ctx.shadowColor = '#fff1b0';
+        ctx.shadowBlur = .36;
+        ctx.fillStyle = '#fff4c5';
+        ctx.beginPath(); ctx.arc(bullet.x, bullet.z, .12, 0, Math.PI * 2); ctx.fill();
+      }
+      for (const enemy of game.enemies) {
+        const color = enemy.variant === 0 ? '#e44f6d' : enemy.variant === 1 ? '#b266dd' : '#f0804d';
+        ctx.shadowColor = color;
+        ctx.shadowBlur = .7;
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(enemy.x, enemy.z, .43, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255,255,255,.38)';
+        ctx.beginPath(); ctx.arc(enemy.x - .12, enemy.z - .14, .1, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.save();
+      ctx.translate(game.playerX, game.playerZ);
+      ctx.rotate(Math.atan2(inputRef.current.aimZ - game.playerZ, inputRef.current.aimX - game.playerX) + Math.PI / 2);
+      ctx.shadowColor = '#f6c23d';
+      ctx.shadowBlur = .85;
+      ctx.fillStyle = '#f6c23d';
+      ctx.beginPath(); ctx.moveTo(0, -.58); ctx.lineTo(.4, .43); ctx.lineTo(0, .23); ctx.lineTo(-.4, .43); ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff1bd';
+      ctx.beginPath(); ctx.arc(0, 0, .13, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      ctx.shadowBlur = 0;
+
+      if (active && !game.ended) {
+        const rawDelta = previousTime ? Math.min((performance.now() - previousTime) / 1000, .05) : 0;
+        const dt = rawDelta;
+        game.survival += dt;
+        game.wave = Math.floor(game.survival / 12) + 1;
+        let x = (inputRef.current.keys.KeyD || inputRef.current.keys.ArrowRight ? 1 : 0)
+          - (inputRef.current.keys.KeyA || inputRef.current.keys.ArrowLeft ? 1 : 0) + inputRef.current.touchX;
+        let z = (inputRef.current.keys.KeyS || inputRef.current.keys.ArrowDown ? 1 : 0)
+          - (inputRef.current.keys.KeyW || inputRef.current.keys.ArrowUp ? 1 : 0) + inputRef.current.touchZ;
+        const length = Math.hypot(x, z);
+        if (length > 1) { x /= length; z /= length; }
+        game.playerX = THREE.MathUtils.clamp(game.playerX + x * dt * 6.1, -ARENA_LIMIT, ARENA_LIMIT);
+        game.playerZ = THREE.MathUtils.clamp(game.playerZ + z * dt * 6.1, -ARENA_LIMIT, ARENA_LIMIT);
+
+        game.spawnTimer -= dt;
+        if (game.spawnTimer <= 0) {
+          const angle = Math.random() * Math.PI * 2;
+          const distance = 8.6 + Math.random() * 1.1;
+          game.enemies.push({
+            id: game.nextId++, x: Math.cos(angle) * distance, z: Math.sin(angle) * distance,
+            speed: 1.15 + game.wave * .1 + Math.random() * .38, variant: Math.floor(Math.random() * 3),
+          });
+          game.spawnTimer = Math.max(.26, 1.12 - game.wave * .065) * (.75 + Math.random() * .4);
+        }
+        game.fireTimer -= dt;
+        if ((inputRef.current.fire || inputRef.current.keys.Space) && game.fireTimer <= 0) {
+          const dx = inputRef.current.aimX - game.playerX;
+          const dz = inputRef.current.aimZ - game.playerZ;
+          const distance = Math.hypot(dx, dz) || 1;
+          game.bullets.push({
+            id: game.nextId++, x: game.playerX, z: game.playerZ,
+            vx: dx / distance * 14, vz: dz / distance * 14, life: 1.25,
+          });
+          game.fireTimer = .13;
+        }
+        const livingBullets: Bullet[] = [];
+        for (const bullet of game.bullets) {
+          bullet.x += bullet.vx * dt; bullet.z += bullet.vz * dt; bullet.life -= dt;
+          if (bullet.life <= 0 || Math.abs(bullet.x) > 10 || Math.abs(bullet.z) > 10) continue;
+          let hit = false;
+          for (let index = game.enemies.length - 1; index >= 0; index -= 1) {
+            const enemy = game.enemies[index];
+            if (Math.hypot(enemy.x - bullet.x, enemy.z - bullet.z) < .65) {
+              game.enemies.splice(index, 1); game.score += 25 + game.wave * 5; game.kills += 1; hit = true; break;
+            }
+          }
+          if (!hit) livingBullets.push(bullet);
+        }
+        game.bullets = livingBullets;
+        for (const enemy of game.enemies) {
+          const dx = game.playerX - enemy.x; const dz = game.playerZ - enemy.z;
+          const distance = Math.hypot(dx, dz) || 1;
+          enemy.x += dx / distance * enemy.speed * dt;
+          enemy.z += dz / distance * enemy.speed * dt;
+          if (distance < .76) game.health -= dt * (8.5 + game.wave * .45);
+        }
+        if (game.health <= 0) {
+          game.health = 0; game.ended = true;
+          gameOverRef.current({ health: 0, score: game.score, wave: game.wave, survival: game.survival, enemies: game.enemies.length });
+        }
+        hudClock += dt;
+        if (hudClock >= .1) {
+          hudClock = 0;
+          hudRef.current({ health: game.health, score: game.score, wave: game.wave, survival: game.survival, enemies: game.enemies.length });
+        }
+      }
+      previousTime = performance.now();
+      frame = requestAnimationFrame(draw);
+    };
+    frame = requestAnimationFrame(draw);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [active, inputRef, resetKey]);
+
+  const updateAim = (event: PointerEvent<HTMLCanvasElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const scale = Math.min(bounds.width, bounds.height) / 19;
+    inputRef.current.aimX = (event.clientX - bounds.left - bounds.width / 2) / scale;
+    inputRef.current.aimZ = (event.clientY - bounds.top - bounds.height / 2) / scale;
+  };
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="game-canvas"
+      aria-label="Arena Survival game scene"
+      onPointerMove={updateAim}
+      onPointerDown={(event) => { updateAim(event); inputRef.current.fire = true; }}
+      onPointerUp={() => { inputRef.current.fire = false; }}
+      onPointerLeave={() => { inputRef.current.fire = false; }}
+    />
+  );
+}
+
+function supportsWebGL() {
+  if (typeof document === 'undefined') return false;
+  try {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    const loseContext = context?.getExtension('WEBGL_lose_context');
+    loseContext?.loseContext();
+    return Boolean(context);
+  } catch {
+    return false;
+  }
+}
+
 export function GameScene(props: SceneProps) {
+  const [webglAvailable] = useState(supportsWebGL);
+  if (!webglAvailable) return <FallbackScene {...props} />;
+
   return (
     <Canvas
       className="game-canvas"
@@ -298,6 +532,7 @@ export function GameScene(props: SceneProps) {
       dpr={[1, 1.5]}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       onCreated={({ gl }) => { gl.setClearColor('#0f1320'); }}
+      fallback={<FallbackScene {...props} />}
     >
       <CameraAndLights />
       <ArenaGeometry />
