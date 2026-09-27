@@ -9,7 +9,26 @@ import { GameScene, type GameStatus, type HudStats, type InputState } from './ga
 import './index.css';
 
 const queryClient = new QueryClient();
-const initialHud: HudStats = { health: 100, score: 0, wave: 1, survival: 0, enemies: 0 };
+type RadarPoint = { x: number; z: number } | [number, number];
+type ArenaHud = HudStats & {
+  shield: number;
+  ammo: number;
+  reserveAmmo: number;
+  grenades: number;
+  radar: RadarPoint[];
+};
+const initialHud: ArenaHud = {
+  health: 100,
+  shield: 100,
+  ammo: 30,
+  reserveAmmo: 120,
+  grenades: 3,
+  score: 0,
+  wave: 1,
+  survival: 0,
+  enemies: 0,
+  radar: [],
+};
 const initialInput: InputState = { keys: {}, fire: false, aimX: 0, aimZ: -5, touchX: 0, touchZ: 0 };
 
 function formatTime(seconds: number) {
@@ -38,10 +57,18 @@ function GameHome() {
       setBest(nextBest);
       localStorage.setItem('arena-survival-high-score', String(nextBest));
     }
-    setHud(stats);
+    setHud((current) => ({ ...current, ...stats } as ArenaHud));
     setStatus('gameover');
   };
   const pauseGame = () => setStatus((current) => current === 'playing' ? 'paused' : current === 'paused' ? 'playing' : current);
+  const updateHud = (stats: HudStats) => {
+    setHud((current) => ({ ...current, ...stats } as ArenaHud));
+  };
+
+  const triggerAction = (code: 'KeyR' | 'KeyG') => {
+    inputRef.current.keys[code] = true;
+    window.setTimeout(() => { inputRef.current.keys[code] = false; }, 140);
+  };
 
   useEffect(() => {
     const onVisibility = () => { if (document.hidden) setStatus((current) => current === 'playing' ? 'paused' : current); };
@@ -67,72 +94,117 @@ function GameHome() {
           active={status === 'playing'}
           resetKey={resetKey}
           inputRef={inputRef}
-          onHud={setHud}
+          onHud={updateHud}
           onGameOver={gameOver}
           onPause={pauseGame}
         />
         <div className="hud-layer">
           {status === 'playing' && (
             <>
-              <div className="hud-corner">
-                <div className="stats-strip">
-                  <div className="hud-panel stat-box">
-                    <div className="stat-label">Score</div>
-                    <div className="stat-value" data-testid="score-stat">{hud.score.toString().padStart(4, '0')}</div>
-                  </div>
-                  <div className="hud-panel stat-box">
-                    <div className="stat-label">Wave</div>
-                    <div className="stat-value" data-testid="wave-stat">{hud.wave.toString().padStart(2, '0')}</div>
-                  </div>
-                  <div className="hud-panel stat-box">
-                    <div className="stat-label">Time</div>
-                    <div className="stat-value" data-testid="timer-stat">{formatTime(hud.survival)}</div>
-                  </div>
-                  <div className="hud-panel stat-box">
-                    <div className="stat-label">Hull</div>
-                    <div className="stat-value">{Math.ceil(hud.health)}<small style={{ fontSize: '.7rem' }}>%</small></div>
-                    <div className="health-track"><div className="health-fill" style={{ width: `${hud.health}%` }} /></div>
-                  </div>
+              <div className="hud-topline">
+                <div className="hud-left-cluster">
+                  <section className="hud-panel vitals-panel" data-testid="vitals-panel">
+                    <div className="panel-kicker"><span className="status-dot" />VITAL SYSTEMS <span className="panel-id">E. THORNE / 07</span></div>
+                    <div className="vital-row">
+                      <span className="vital-icon health-icon">+</span>
+                      <div className="vital-copy"><span>Health</span><strong data-testid="health-stat">{Math.ceil(hud.health)}<small>%</small></strong></div>
+                      <div className="meter"><i className="health-meter" style={{ width: `${Math.max(0, Math.min(100, hud.health))}%` }} /></div>
+                    </div>
+                    <div className="vital-row">
+                      <span className="vital-icon shield-icon">◇</span>
+                      <div className="vital-copy"><span>Shield</span><strong data-testid="shield-stat">{Math.ceil(hud.shield)}<small>%</small></strong></div>
+                      <div className="meter"><i className="shield-meter" style={{ width: `${Math.max(0, Math.min(100, hud.shield))}%` }} /></div>
+                    </div>
+                  </section>
+                  <section className="hud-panel radar-panel" data-testid="radar-panel">
+                    <div className="panel-kicker">PROXIMITY <span className="radar-live">LIVE</span></div>
+                    <div className="radar-screen" aria-label="Enemy proximity radar">
+                      <div className="radar-crosshair horizontal" />
+                      <div className="radar-crosshair vertical" />
+                      <div className="radar-ring radar-ring-one" />
+                      <div className="radar-ring radar-ring-two" />
+                      <span className="radar-player" />
+                      {hud.radar.map((point, index) => {
+                        const rawX = Array.isArray(point) ? point[0] : point.x;
+                        const rawZ = Array.isArray(point) ? point[1] : point.z;
+                        const x = Math.max(4, Math.min(96, (rawX + 1) * 50));
+                        const z = Math.max(4, Math.min(96, (rawZ + 1) * 50));
+                        return <i className="radar-blip" key={`${index}-${rawX}-${rawZ}`} style={{ left: `${x}%`, top: `${z}%` }} />;
+                      })}
+                    </div>
+                  </section>
                 </div>
-                <button className="pause-button" data-testid="pause-button" onClick={pauseGame}>{'//' } Pause</button>
+                <div className="hud-right-cluster">
+                  <section className="hud-panel mission-panel">
+                    <div className="mission-top"><span className="panel-kicker">THREAT INDEX</span><span className="signal-line">///</span></div>
+                    <div className="wave-value"><span>WAVE</span><strong data-testid="wave-stat">{hud.wave.toString().padStart(2, '0')}</strong></div>
+                    <div className="enemy-count"><span>HOSTILES ACTIVE</span><strong data-testid="enemy-stat">{hud.enemies.toString().padStart(2, '0')}</strong></div>
+                  </section>
+                  <button className="pause-button" data-testid="pause-button" onClick={pauseGame}><span className="pause-glyph">||</span> Pause</button>
+                </div>
               </div>
-              <div className="bottom-hint">WASD / arrows to move <span style={{ margin: '0 .7rem', color: '#f6c23d' }}>·</span> mouse aim + hold click to fire <span style={{ margin: '0 .7rem', color: '#f6c23d' }}>·</span> P to pause</div>
+              <div className="hud-bottomline">
+                <div className="score-readout">
+                  <span>RUN SCORE</span><strong data-testid="score-stat">{hud.score.toString().padStart(5, '0')}</strong>
+                  <span className="survival-readout" data-testid="survival-stat">SURVIVAL <b data-testid="timer-stat">{formatTime(hud.survival)}</b></span>
+                </div>
+                <section className="hud-panel weapon-panel" data-testid="weapon-panel">
+                  <div className="weapon-visual" aria-hidden="true"><span className="rifle-barrel" /><span className="rifle-body" /><span className="rifle-grip" /><span className="rifle-stock" /><span className="rifle-led" /></div>
+                  <div className="weapon-data">
+                    <div className="weapon-name">VX-9 <span>CARBINE</span></div>
+                    <div className="ammo-readout"><strong data-testid="ammo-stat">{hud.ammo.toString().padStart(2, '0')}</strong><span data-testid="reserve-ammo-stat">/ {hud.reserveAmmo.toString().padStart(3, '0')}</span></div>
+                    <div className="weapon-rule" />
+                    <div className="weapon-meta"><span>AMMO</span><span className="grenade-count"><i className="grenade-icon" /> <b data-testid="grenade-stat">{hud.grenades}</b></span></div>
+                  </div>
+                  <div className="weapon-actions">
+                    <button className="action-button" data-testid="reload-button" onClick={() => triggerAction('KeyR')}><b>R</b> Reload</button>
+                    <button className="action-button" data-testid="grenade-button" onClick={() => triggerAction('KeyG')}><b>G</b> Frag</button>
+                  </div>
+                </section>
+              </div>
+              <div className="bottom-hint">WASD / arrows to move <span>•</span> mouse aim + hold click to fire <span>•</span> P to pause</div>
               <div className="touch-ui">
-                <div className="touch-stick touch-control" data-testid="touch-move" onPointerDown={setTouchVector} onPointerMove={(event) => { if (touchActive) setTouchVector(event); }} onPointerUp={clearTouch} onPointerCancel={clearTouch} />
-                <button className="fire-control touch-control" data-testid="touch-fire" onPointerDown={(event) => { event.stopPropagation(); inputRef.current.fire = true; }} onPointerUp={() => { inputRef.current.fire = false; }} onPointerCancel={() => { inputRef.current.fire = false; }}>FIRE</button>
+                <div className="touch-stick touch-control" data-testid="touch-move" onPointerDown={setTouchVector} onPointerMove={(event) => { if (touchActive) setTouchVector(event); }} onPointerUp={clearTouch} onPointerCancel={clearTouch}><span className="stick-core" /></div>
+                <div className="touch-actions">
+                  <button className="touch-action touch-control" data-testid="touch-reload" onPointerDown={() => triggerAction('KeyR')}>R</button>
+                  <button className="touch-action touch-control" data-testid="touch-grenade" onPointerDown={() => triggerAction('KeyG')}>G</button>
+                  <button className="fire-control touch-control" data-testid="touch-fire" onPointerDown={(event) => { event.stopPropagation(); inputRef.current.fire = true; }} onPointerUp={() => { inputRef.current.fire = false; }} onPointerCancel={() => { inputRef.current.fire = false; }}>FIRE</button>
+                </div>
               </div>
             </>
           )}
           {status === 'menu' && (
             <section className="overlay-card" data-testid="start-screen">
-              <div className="eyebrow">Sector 07 // Survival Protocol</div>
+              <div className="menu-mark"><span>07</span><i /></div>
+              <div className="eyebrow">SECTOR 07 <span>//</span> SURVIVAL PROTOCOL</div>
               <h1 className="game-title">Arena <span>Survival</span></h1>
-              <p className="game-copy">The perimeter is gone. Swarms are inbound. Hold the center, keep moving, and turn every clean shot into another second alive.</p>
-              <button className="primary-button" data-testid="start-button" onClick={startGame}>Enter the arena</button>
-              <div className="control-rail"><span><b className="keycap">WASD</b> Move</span><span><b className="keycap">MOUSE</b> Aim + fire</span></div>
-              {best > 0 && <div style={{ marginTop: '1.4rem', color: 'hsl(var(--primary))', fontSize: '.65rem', letterSpacing: '.12em' }}>LOCAL BEST / {best.toString().padStart(4, '0')}</div>}
+              <div className="operator-line"><span>OPERATOR</span> ELIAS “JACK” THORNE <i>•</i> LIVE COMBAT SIMULATION</div>
+              <p className="game-copy">The perimeter is gone. Hold the center of the concrete ring, keep moving, and make every clean shot buy another second.</p>
+              <button className="primary-button" data-testid="start-button" onClick={startGame}><span>Enter the arena</span><b>→</b></button>
+              <div className="control-rail"><span><b className="keycap">WASD</b> Move</span><span><b className="keycap">MOUSE</b> Aim / fire</span><span><b className="keycap">R</b> Reload</span></div>
+              {best > 0 && <div className="local-best">LOCAL BEST <strong>{best.toString().padStart(5, '0')}</strong></div>}
             </section>
           )}
           {status === 'paused' && (
             <section className="overlay-card" data-testid="pause-screen">
-              <div className="eyebrow">Signal interrupted</div>
-              <h2 className="game-title" style={{ fontSize: 'clamp(3.5rem, 10vw, 5.8rem)' }}>On hold</h2>
-              <p className="game-copy">The swarm is frozen. Take a breath, then get back into the light.</p>
-              <button className="primary-button" data-testid="resume-button" onClick={pauseGame}>Resume run</button>
-              <div style={{ marginTop: '1.1rem' }}><button className="secondary-button" onClick={startGame}>Abort and restart</button></div>
+              <div className="eyebrow">SIGNAL INTERRUPTED</div>
+              <h2 className="game-title compact-title">On hold</h2>
+              <p className="game-copy">The swarm is frozen. Resume when you are ready.</p>
+              <button className="primary-button" data-testid="resume-button" onClick={pauseGame}><span>Resume run</span><b>→</b></button>
+              <div className="secondary-wrap"><button className="secondary-button" data-testid="pause-restart-button" onClick={startGame}>Abort and restart</button></div>
             </section>
           )}
           {status === 'gameover' && (
             <section className="overlay-card" data-testid="game-over-screen">
-              <div className="eyebrow">Run terminated</div>
-              <h2 className="game-title" style={{ fontSize: 'clamp(3.2rem, 10vw, 5.8rem)' }}>Overrun</h2>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '2rem', margin: '1.4rem 0 1.7rem' }}>
-                <div><div className="stat-label">Score</div><div className="stat-value" data-testid="final-score">{hud.score.toString().padStart(4, '0')}</div></div>
-                <div><div className="stat-label">Survived</div><div className="stat-value">{formatTime(hud.survival)}</div></div>
-                <div><div className="stat-label">Wave</div><div className="stat-value">{hud.wave.toString().padStart(2, '0')}</div></div>
+              <div className="eyebrow danger-eyebrow">RUN TERMINATED</div>
+              <h2 className="game-title compact-title">Overrun</h2>
+              <div className="result-grid">
+                <div><div className="stat-label">Score</div><div className="result-value" data-testid="final-score">{hud.score.toString().padStart(5, '0')}</div></div>
+                <div><div className="stat-label">Survived</div><div className="result-value">{formatTime(hud.survival)}</div></div>
+                <div><div className="stat-label">Wave</div><div className="result-value">{hud.wave.toString().padStart(2, '0')}</div></div>
               </div>
-              <div style={{ color: 'hsl(var(--primary))', fontSize: '.65rem', letterSpacing: '.12em', marginBottom: '1.3rem' }}>LOCAL BEST / {best.toString().padStart(4, '0')}</div>
-              <button className="primary-button" data-testid="restart-button" onClick={startGame}>Run it back</button>
+              <div className="local-best">LOCAL BEST <strong>{best.toString().padStart(5, '0')}</strong></div>
+              <button className="primary-button" data-testid="restart-button" onClick={startGame}><span>Run it back</span><b>→</b></button>
             </section>
           )}
         </div>
