@@ -1,6 +1,7 @@
 import { type MutableRefObject, type PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Environment, Lightformer } from '@react-three/drei';
+import { Environment } from '@react-three/drei';
+import { Bloom, EffectComposer, N8AO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import environmentImage from '@assets/environment_1790480278133.jpg';
 import { getConcreteTextures, getWoodTextures, tiledTexture } from './arena-textures';
@@ -250,13 +251,42 @@ function ArenaGeometry() {
 }
 
 function ArenaEnvironment() {
+  // A real photographed HDRI (fetched at runtime from drei's asset CDN) instead of a
+  // synthetic Lightformer rig — this is what actually gives the concrete and metal
+  // convincing, physically-based reflections rather than flat shading.
   return (
-    <Environment resolution={64}>
-      <Lightformer form="ring" color="#5fd3f2" intensity={2.4} position={[0, 6, 0]} scale={9} rotation={[Math.PI / 2, 0, 0]} />
-      <Lightformer form="rect" color="#aebcc6" intensity={1.1} position={[0, 8, -6]} scale={[14, 6, 1]} />
-      <Lightformer form="rect" color="#0b1016" intensity={.6} position={[0, -6, 0]} scale={[16, 16, 1]} rotation={[Math.PI / 2, 0, 0]} />
-      <Lightformer form="circle" color="#2c3a42" intensity={.8} position={[8, 3, 8]} scale={6} />
-    </Environment>
+    <Environment
+      preset="warehouse"
+      background={false}
+      environmentIntensity={.55}
+      resolution={256}
+    />
+  );
+}
+
+function PostFX() {
+  return (
+    <EffectComposer multisampling={4} enableNormalPass>
+      {/* Ambient occlusion — grounds objects with real contact shadows instead of
+          everything looking like it's floating a hair above the concrete. */}
+      <N8AO
+        aoRadius={.9}
+        intensity={2.2}
+        distanceFalloff={1}
+        color="#02070a"
+        halfRes
+      />
+      {/* Bloom — makes the cyan LED accents on the arena, rifle, zombie eyes and
+          muzzle flashes actually glow/bleed into the surrounding dark, matching
+          the reference art instead of reading as flat bright shapes. */}
+      <Bloom
+        mipmapBlur
+        luminanceThreshold={.35}
+        luminanceSmoothing={.35}
+        intensity={.85}
+        radius={.62}
+      />
+    </EffectComposer>
   );
 }
 
@@ -1166,6 +1196,8 @@ export function GameScene(props: SceneProps) {
       onCreated={({ gl }) => {
         gl.setClearColor('#0c1017');
         gl.shadowMap.type = THREE.PCFShadowMap;
+        gl.toneMapping = THREE.ACESFilmicToneMapping;
+        gl.toneMappingExposure = 1.15;
       }}
       fallback={<FallbackScene {...props} />}
     >
@@ -1173,6 +1205,7 @@ export function GameScene(props: SceneProps) {
       <ArenaGeometry />
       <Ground inputRef={props.inputRef} />
       <SimulationGameLoop {...props} engineRef={engineRef} />
+      <PostFX />
     </Canvas>
   );
 }
