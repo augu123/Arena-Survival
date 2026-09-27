@@ -5,6 +5,7 @@ import { Bloom, EffectComposer, N8AO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import environmentImage from '@assets/environment_1790480278133.jpg';
 import { getConcreteTextures, getWoodTextures, tiledTexture } from './arena-textures';
+import { OPTIONAL_REAL_CONCRETE_TEXTURE_URLS, REAL_WOOD_TEXTURE_URLS, upgradeMaterialTextures } from './real-textures';
 import {
   ARENA_LIMIT,
   OBSTACLES,
@@ -122,22 +123,93 @@ function Ground({ inputRef }: { inputRef: MutableRefObject<InputState> }) {
 }
 
 function ArenaGeometry() {
-  const concrete = useMemo(() => getConcreteTextures(), []);
-  const wood = useMemo(() => getWoodTextures(), []);
-  const floorMap = useMemo(() => tiledTexture(concrete.map, 7, 7), [concrete]);
-  const floorBump = useMemo(() => tiledTexture(concrete.bumpMap, 7, 7), [concrete]);
-  const floorRough = useMemo(() => tiledTexture(concrete.roughnessMap, 7, 7), [concrete]);
-  const wallMap = useMemo(() => tiledTexture(concrete.map, 18, 1.1), [concrete]);
-  const wallBump = useMemo(() => tiledTexture(concrete.bumpMap, 18, 1.1), [concrete]);
-  const wallRough = useMemo(() => tiledTexture(concrete.roughnessMap, 18, 1.1), [concrete]);
-  const segmentMap = useMemo(() => tiledTexture(concrete.map, 1.1, 2.6), [concrete]);
-  const segmentBump = useMemo(() => tiledTexture(concrete.bumpMap, 1.1, 2.6), [concrete]);
-  const segmentRough = useMemo(() => tiledTexture(concrete.roughnessMap, 1.1, 2.6), [concrete]);
-  const barrierMap = useMemo(() => tiledTexture(concrete.map, 1.4, .9), [concrete]);
-  const barrierBump = useMemo(() => tiledTexture(concrete.bumpMap, 1.4, .9), [concrete]);
-  const barrierRough = useMemo(() => tiledTexture(concrete.roughnessMap, 1.4, .9), [concrete]);
-  const crateMap = useMemo(() => tiledTexture(wood.map, 1, 1), [wood]);
-  const crateBump = useMemo(() => tiledTexture(wood.bumpMap, 1, 1), [wood]);
+  const floorMaterial = useMemo(() => {
+    const concrete = getConcreteTextures();
+    return new THREE.MeshStandardMaterial({
+      map: tiledTexture(concrete.map, 7, 7),
+      bumpMap: tiledTexture(concrete.bumpMap, 7, 7),
+      bumpScale: .045,
+      roughnessMap: tiledTexture(concrete.roughnessMap, 7, 7),
+      roughness: 1,
+      metalness: .06,
+      color: '#aab5ba',
+      envMapIntensity: .4,
+    });
+  }, []);
+  const wallMaterial = useMemo(() => {
+    const concrete = getConcreteTextures();
+    return new THREE.MeshStandardMaterial({
+      map: tiledTexture(concrete.map, 18, 1.1),
+      bumpMap: tiledTexture(concrete.bumpMap, 18, 1.1),
+      bumpScale: .05,
+      roughnessMap: tiledTexture(concrete.roughnessMap, 18, 1.1),
+      roughness: 1,
+      metalness: .1,
+      color: '#8894a0',
+      side: THREE.DoubleSide,
+      envMapIntensity: .35,
+    });
+  }, []);
+  const segmentMaterial = useMemo(() => {
+    const concrete = getConcreteTextures();
+    return new THREE.MeshStandardMaterial({
+      map: tiledTexture(concrete.map, 1.1, 2.6),
+      bumpMap: tiledTexture(concrete.bumpMap, 1.1, 2.6),
+      bumpScale: .04,
+      roughnessMap: tiledTexture(concrete.roughnessMap, 1.1, 2.6),
+      roughness: 1,
+      metalness: .1,
+      color: '#96a2a9',
+      envMapIntensity: .4,
+    });
+  }, []);
+  const barrierMaterial = useMemo(() => {
+    const concrete = getConcreteTextures();
+    return new THREE.MeshStandardMaterial({
+      map: tiledTexture(concrete.map, 1.4, .9),
+      bumpMap: tiledTexture(concrete.bumpMap, 1.4, .9),
+      bumpScale: .035,
+      roughnessMap: tiledTexture(concrete.roughnessMap, 1.4, .9),
+      roughness: 1,
+      metalness: .06,
+      color: '#b3bec3',
+      envMapIntensity: .4,
+    });
+  }, []);
+  const crateMaterial = useMemo(() => {
+    const wood = getWoodTextures();
+    return new THREE.MeshStandardMaterial({
+      map: tiledTexture(wood.map, 1, 1),
+      bumpMap: tiledTexture(wood.bumpMap, 1, 1),
+      bumpScale: .03,
+      roughness: .86,
+      metalness: .02,
+    });
+  }, []);
+  const crateLidMaterial = useMemo(() => {
+    const wood = getWoodTextures();
+    return new THREE.MeshStandardMaterial({
+      map: tiledTexture(wood.map, 1, 1),
+      bumpMap: tiledTexture(wood.bumpMap, 1, 1),
+      bumpScale: .03,
+      roughness: .8,
+      metalness: .02,
+    });
+  }, []);
+
+  // One-time best-effort upgrade from procedural PBR maps to real photographs.
+  // The wood set is a verified, always-available real photo (see
+  // real-textures.ts); the concrete set only upgrades if the user has dropped
+  // real CC0 files into /public/textures — otherwise this silently no-ops and
+  // the procedural concrete stays in place.
+  useEffect(() => {
+    upgradeMaterialTextures(crateMaterial, REAL_WOOD_TEXTURE_URLS, 1, 1);
+    upgradeMaterialTextures(crateLidMaterial, REAL_WOOD_TEXTURE_URLS, 1, 1);
+    upgradeMaterialTextures(floorMaterial, OPTIONAL_REAL_CONCRETE_TEXTURE_URLS, 7, 7);
+    upgradeMaterialTextures(wallMaterial, OPTIONAL_REAL_CONCRETE_TEXTURE_URLS, 18, 1.1);
+    upgradeMaterialTextures(segmentMaterial, OPTIONAL_REAL_CONCRETE_TEXTURE_URLS, 1.1, 2.6);
+    upgradeMaterialTextures(barrierMaterial, OPTIONAL_REAL_CONCRETE_TEXTURE_URLS, 1.4, .9);
+  }, [floorMaterial, wallMaterial, segmentMaterial, barrierMaterial, crateMaterial, crateLidMaterial]);
 
   const wallSegments = Array.from({ length: 48 }, (_, index) => {
     const angle = (index / 48) * Math.PI * 2;
@@ -147,16 +219,7 @@ function ArenaGeometry() {
     <>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -.02, 0]} receiveShadow>
         <circleGeometry args={[9.3, 96]} />
-        <meshStandardMaterial
-          map={floorMap}
-          bumpMap={floorBump}
-          bumpScale={.045}
-          roughnessMap={floorRough}
-          roughness={1}
-          metalness={.06}
-          color="#aab5ba"
-          envMapIntensity={.4}
-        />
+        <primitive object={floorMaterial} attach="material" />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .004, 0]}>
         <ringGeometry args={[8.62, 8.72, 96]} />
@@ -168,17 +231,7 @@ function ArenaGeometry() {
       </mesh>
       <mesh position={[0, .46, 0]}>
         <cylinderGeometry args={[9.28, 9.28, 1.35, 72, 1, true]} />
-        <meshStandardMaterial
-          map={wallMap}
-          bumpMap={wallBump}
-          bumpScale={.05}
-          roughnessMap={wallRough}
-          roughness={1}
-          metalness={.1}
-          color="#8894a0"
-          side={THREE.DoubleSide}
-          envMapIntensity={.35}
-        />
+        <primitive object={wallMaterial} attach="material" />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 1.12, 0]}>
         <ringGeometry args={[9.12, 9.32, 72]} />
@@ -188,16 +241,7 @@ function ArenaGeometry() {
         <group key={index} position={[x, .5, z]} rotation={[0, -angle, 0]}>
           <mesh castShadow receiveShadow>
             <boxGeometry args={[.15, 1.45, .48]} />
-            <meshStandardMaterial
-              map={segmentMap}
-              bumpMap={segmentBump}
-              bumpScale={.04}
-              roughnessMap={segmentRough}
-              roughness={1}
-              metalness={.1}
-              color="#96a2a9"
-              envMapIntensity={.4}
-            />
+            <primitive object={segmentMaterial} attach="material" />
           </mesh>
           <mesh position={[0, -.35, .25]}>
             <boxGeometry args={[.09, .045, .025]} />
@@ -209,16 +253,7 @@ function ArenaGeometry() {
         <group key={index} position={[obstacle.x, 0, obstacle.z]}>
           <mesh position={[0, .38, 0]} castShadow receiveShadow>
             <boxGeometry args={[obstacle.halfX * 2, .76, obstacle.halfZ * 2]} />
-            <meshStandardMaterial
-              map={barrierMap}
-              bumpMap={barrierBump}
-              bumpScale={.035}
-              roughnessMap={barrierRough}
-              roughness={1}
-              metalness={.06}
-              color="#b3bec3"
-              envMapIntensity={.4}
-            />
+            <primitive object={barrierMaterial} attach="material" />
           </mesh>
           <mesh position={[0, .79, 0]}>
             <boxGeometry args={[obstacle.halfX * 1.9, .07, obstacle.halfZ * 1.8]} />
@@ -234,11 +269,11 @@ function ArenaGeometry() {
         <group key={`crate-${index}`} position={[x, .28, z]}>
           <mesh castShadow receiveShadow>
             <boxGeometry args={[.72, .56, .72]} />
-            <meshStandardMaterial map={crateMap} bumpMap={crateBump} bumpScale={.03} roughness={.86} metalness={.02} />
+            <primitive object={crateMaterial} attach="material" />
           </mesh>
           <mesh position={[0, .29, 0]} castShadow>
             <boxGeometry args={[.75, .045, .75]} />
-            <meshStandardMaterial map={crateMap} bumpMap={crateBump} bumpScale={.03} roughness={.8} metalness={.02} />
+            <primitive object={crateLidMaterial} attach="material" />
           </mesh>
           <mesh rotation={[0, Math.PI / 4, 0]} position={[0, .31, 0]}>
             <boxGeometry args={[.82, .035, .045]} />
