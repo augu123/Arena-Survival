@@ -9,18 +9,11 @@ import { GameScene, type GameStatus, type HudStats, type InputState } from './ga
 import './index.css';
 
 const queryClient = new QueryClient();
-type RadarPoint = { x: number; z: number } | [number, number];
-type ArenaHud = HudStats & {
-  shield: number;
-  ammo: number;
-  reserveAmmo: number;
-  grenades: number;
-  radar: RadarPoint[];
-};
+type ArenaHud = HudStats;
 const initialHud: ArenaHud = {
   health: 100,
-  shield: 100,
-  ammo: 30,
+  shield: 50,
+  ammo: 60,
   reserveAmmo: 120,
   grenades: 3,
   score: 0,
@@ -57,12 +50,12 @@ function GameHome() {
       setBest(nextBest);
       localStorage.setItem('arena-survival-high-score', String(nextBest));
     }
-    setHud((current) => ({ ...current, ...stats } as ArenaHud));
+    setHud((current) => ({ ...current, ...stats }));
     setStatus('gameover');
   };
   const pauseGame = () => setStatus((current) => current === 'playing' ? 'paused' : current === 'paused' ? 'playing' : current);
   const updateHud = (stats: HudStats) => {
-    setHud((current) => ({ ...current, ...stats } as ArenaHud));
+    setHud((current) => ({ ...current, ...stats }));
   };
 
   const triggerAction = (code: 'KeyR' | 'KeyG') => {
@@ -125,8 +118,8 @@ function GameHome() {
                       <div className="radar-ring radar-ring-two" />
                       <span className="radar-player" />
                       {hud.radar.map((point, index) => {
-                        const rawX = Array.isArray(point) ? point[0] : point.x;
-                        const rawZ = Array.isArray(point) ? point[1] : point.z;
+                        const rawX = point[0];
+                        const rawZ = point[1];
                         const x = Math.max(4, Math.min(96, (rawX + 1) * 50));
                         const z = Math.max(4, Math.min(96, (rawZ + 1) * 50));
                         return <i className="radar-blip" key={`${index}-${rawX}-${rawZ}`} style={{ left: `${x}%`, top: `${z}%` }} />;
