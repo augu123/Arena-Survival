@@ -1,7 +1,9 @@
-import { type MutableRefObject, type PointerEvent, useEffect, useRef, useState } from 'react';
+import { type MutableRefObject, type PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Environment, Lightformer } from '@react-three/drei';
 import * as THREE from 'three';
 import environmentImage from '@assets/environment_1790480278133.jpg';
+import { getConcreteTextures, getWoodTextures, tiledTexture } from './arena-textures';
 import {
   ARENA_LIMIT,
   OBSTACLES,
@@ -119,6 +121,23 @@ function Ground({ inputRef }: { inputRef: MutableRefObject<InputState> }) {
 }
 
 function ArenaGeometry() {
+  const concrete = useMemo(() => getConcreteTextures(), []);
+  const wood = useMemo(() => getWoodTextures(), []);
+  const floorMap = useMemo(() => tiledTexture(concrete.map, 7, 7), [concrete]);
+  const floorBump = useMemo(() => tiledTexture(concrete.bumpMap, 7, 7), [concrete]);
+  const floorRough = useMemo(() => tiledTexture(concrete.roughnessMap, 7, 7), [concrete]);
+  const wallMap = useMemo(() => tiledTexture(concrete.map, 18, 1.1), [concrete]);
+  const wallBump = useMemo(() => tiledTexture(concrete.bumpMap, 18, 1.1), [concrete]);
+  const wallRough = useMemo(() => tiledTexture(concrete.roughnessMap, 18, 1.1), [concrete]);
+  const segmentMap = useMemo(() => tiledTexture(concrete.map, 1.1, 2.6), [concrete]);
+  const segmentBump = useMemo(() => tiledTexture(concrete.bumpMap, 1.1, 2.6), [concrete]);
+  const segmentRough = useMemo(() => tiledTexture(concrete.roughnessMap, 1.1, 2.6), [concrete]);
+  const barrierMap = useMemo(() => tiledTexture(concrete.map, 1.4, .9), [concrete]);
+  const barrierBump = useMemo(() => tiledTexture(concrete.bumpMap, 1.4, .9), [concrete]);
+  const barrierRough = useMemo(() => tiledTexture(concrete.roughnessMap, 1.4, .9), [concrete]);
+  const crateMap = useMemo(() => tiledTexture(wood.map, 1, 1), [wood]);
+  const crateBump = useMemo(() => tiledTexture(wood.bumpMap, 1, 1), [wood]);
+
   const wallSegments = Array.from({ length: 48 }, (_, index) => {
     const angle = (index / 48) * Math.PI * 2;
     return { angle, x: Math.cos(angle) * 9.05, z: Math.sin(angle) * 9.05 };
@@ -127,26 +146,57 @@ function ArenaGeometry() {
     <>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -.02, 0]} receiveShadow>
         <circleGeometry args={[9.3, 96]} />
-        <meshStandardMaterial color="#454e55" roughness={.96} metalness={.08} />
+        <meshStandardMaterial
+          map={floorMap}
+          bumpMap={floorBump}
+          bumpScale={.045}
+          roughnessMap={floorRough}
+          roughness={1}
+          metalness={.06}
+          color="#aab5ba"
+          envMapIntensity={.4}
+        />
       </mesh>
-      <gridHelper args={[16, 16, '#53606a', '#46525b']} position={[0, .006, 0]} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .004, 0]}>
         <ringGeometry args={[8.62, 8.72, 96]} />
         <meshBasicMaterial color="#3bc9ed" transparent opacity={.92} />
       </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .005, 0]}>
+        <ringGeometry args={[7.35, 7.42, 96]} />
+        <meshBasicMaterial color="#3bc9ed" transparent opacity={.4} />
+      </mesh>
       <mesh position={[0, .46, 0]}>
         <cylinderGeometry args={[9.28, 9.28, 1.35, 72, 1, true]} />
-        <meshStandardMaterial color="#343e46" roughness={.88} metalness={.13} side={THREE.DoubleSide} />
+        <meshStandardMaterial
+          map={wallMap}
+          bumpMap={wallBump}
+          bumpScale={.05}
+          roughnessMap={wallRough}
+          roughness={1}
+          metalness={.1}
+          color="#8894a0"
+          side={THREE.DoubleSide}
+          envMapIntensity={.35}
+        />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 1.12, 0]}>
         <ringGeometry args={[9.12, 9.32, 72]} />
-        <meshStandardMaterial color="#66737a" roughness={.7} metalness={.18} />
+        <meshStandardMaterial color="#8b9aa1" roughness={.55} metalness={.28} envMapIntensity={.6} />
       </mesh>
       {wallSegments.filter((_, index) => index % 2 === 0).map(({ angle, x, z }, index) => (
         <group key={index} position={[x, .5, z]} rotation={[0, -angle, 0]}>
-          <mesh>
+          <mesh castShadow receiveShadow>
             <boxGeometry args={[.15, 1.45, .48]} />
-            <meshStandardMaterial color="#58636a" roughness={.82} metalness={.16} />
+            <meshStandardMaterial
+              map={segmentMap}
+              bumpMap={segmentBump}
+              bumpScale={.04}
+              roughnessMap={segmentRough}
+              roughness={1}
+              metalness={.1}
+              color="#96a2a9"
+              envMapIntensity={.4}
+            />
           </mesh>
           <mesh position={[0, -.35, .25]}>
             <boxGeometry args={[.09, .045, .025]} />
@@ -158,23 +208,36 @@ function ArenaGeometry() {
         <group key={index} position={[obstacle.x, 0, obstacle.z]}>
           <mesh position={[0, .38, 0]} castShadow receiveShadow>
             <boxGeometry args={[obstacle.halfX * 2, .76, obstacle.halfZ * 2]} />
-            <meshStandardMaterial color="#667178" roughness={.9} metalness={.08} />
+            <meshStandardMaterial
+              map={barrierMap}
+              bumpMap={barrierBump}
+              bumpScale={.035}
+              roughnessMap={barrierRough}
+              roughness={1}
+              metalness={.06}
+              color="#b3bec3"
+              envMapIntensity={.4}
+            />
           </mesh>
           <mesh position={[0, .79, 0]}>
             <boxGeometry args={[obstacle.halfX * 1.9, .07, obstacle.halfZ * 1.8]} />
-            <meshStandardMaterial color="#7b878c" roughness={.76} metalness={.13} />
+            <meshStandardMaterial color="#c3ccd0" roughness={.6} metalness={.16} envMapIntensity={.5} />
+          </mesh>
+          <mesh position={[0, .12, obstacle.halfZ * .96]}>
+            <boxGeometry args={[obstacle.halfX * 1.7, .025, .012]} />
+            <meshBasicMaterial color="#4fd6f2" toneMapped={false} />
           </mesh>
         </group>
       ))}
       {[[-1.7, -4.1], [1.8, -4.25], [-1.8, 4.15], [1.8, 4.2]].map(([x, z], index) => (
         <group key={`crate-${index}`} position={[x, .28, z]}>
-          <mesh>
+          <mesh castShadow receiveShadow>
             <boxGeometry args={[.72, .56, .72]} />
-            <meshStandardMaterial color="#454f55" roughness={.91} metalness={.04} />
+            <meshStandardMaterial map={crateMap} bumpMap={crateBump} bumpScale={.03} roughness={.86} metalness={.02} />
           </mesh>
-          <mesh position={[0, .29, 0]}>
+          <mesh position={[0, .29, 0]} castShadow>
             <boxGeometry args={[.75, .045, .75]} />
-            <meshStandardMaterial color="#748087" roughness={.8} />
+            <meshStandardMaterial map={crateMap} bumpMap={crateBump} bumpScale={.03} roughness={.8} metalness={.02} />
           </mesh>
           <mesh rotation={[0, Math.PI / 4, 0]} position={[0, .31, 0]}>
             <boxGeometry args={[.82, .035, .045]} />
@@ -183,6 +246,17 @@ function ArenaGeometry() {
         </group>
       ))}
     </>
+  );
+}
+
+function ArenaEnvironment() {
+  return (
+    <Environment resolution={64}>
+      <Lightformer form="ring" color="#5fd3f2" intensity={2.4} position={[0, 6, 0]} scale={9} rotation={[Math.PI / 2, 0, 0]} />
+      <Lightformer form="rect" color="#aebcc6" intensity={1.1} position={[0, 8, -6]} scale={[14, 6, 1]} />
+      <Lightformer form="rect" color="#0b1016" intensity={.6} position={[0, -6, 0]} scale={[16, 16, 1]} rotation={[Math.PI / 2, 0, 0]} />
+      <Lightformer form="circle" color="#2c3a42" intensity={.8} position={[8, 3, 8]} scale={6} />
+    </Environment>
   );
 }
 
@@ -710,12 +784,13 @@ function CameraAndLights({
   });
   return (
     <>
-      <ambientLight intensity={.48} color="#a9bac3" />
+      <hemisphereLight args={['#7f929e', '#141b22', .62]} />
+      <ambientLight intensity={.22} color="#93a7b3" />
       <directionalLight
         castShadow
         position={[3, 10, 5]}
-        intensity={1.55}
-        color="#c8d6df"
+        intensity={1.35}
+        color="#bfd0da"
         shadow-mapSize={[1024, 1024]}
         shadow-camera-left={-12}
         shadow-camera-right={12}
@@ -723,8 +798,10 @@ function CameraAndLights({
         shadow-camera-bottom={-12}
         shadow-bias={-.0002}
       />
+      <directionalLight position={[-6, 6, -4]} intensity={.28} color="#5fb8d6" />
       <pointLight position={[-5, 4, -3]} intensity={9} distance={15} color="#165e72" />
-      <fog attach="fog" args={['#0f1320', 12, 28]} />
+      <fog attach="fog" args={['#0c1017', 12, 28]} />
+      <ArenaEnvironment />
     </>
   );
 }
@@ -1087,7 +1164,7 @@ export function GameScene(props: SceneProps) {
       shadows="percentage"
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       onCreated={({ gl }) => {
-        gl.setClearColor('#0f1320');
+        gl.setClearColor('#0c1017');
         gl.shadowMap.type = THREE.PCFShadowMap;
       }}
       fallback={<FallbackScene {...props} />}
