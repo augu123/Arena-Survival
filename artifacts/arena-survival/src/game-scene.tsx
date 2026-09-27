@@ -2,28 +2,35 @@ import { type MutableRefObject, type PointerEvent, useEffect, useRef, useState }
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import environmentImage from '@assets/environment_1790480278133.jpg';
+import {
+  ARENA_LIMIT,
+  OBSTACLES,
+  type Engine as SimulationEngine,
+  type AmmoPickup,
+  type Bullet as SimulationBullet,
+  type Enemy as SimulationEnemy,
+  type Explosion as SimulationExplosion,
+  type GrenadeProjectile,
+  type HudStats,
+  type InputState,
+  type GameStatus,
+  freshEngine as freshSimulation,
+  stepGame,
+  toHud as simulationHud,
+} from './game-simulation';
+import {
+  AmmoPickupMesh,
+  BulletMesh as SimulationBulletMesh,
+  createOperatorRig,
+  ExplosionMesh as SimulationExplosionMesh,
+  GrenadeMesh,
+  OperatorCharacter,
+  ParticleField,
+  SleeperCharacter,
+  type OperatorMotion,
+} from './game-models';
 
-export type GameStatus = 'menu' | 'playing' | 'paused' | 'gameover';
-export type HudStats = {
-  health: number;
-  shield: number;
-  ammo: number;
-  reserveAmmo: number;
-  grenades: number;
-  score: number;
-  wave: number;
-  survival: number;
-  enemies: number;
-  radar: Array<[number, number]>;
-};
-export type InputState = {
-  keys: Record<string, boolean>;
-  fire: boolean;
-  aimX: number;
-  aimZ: number;
-  touchX: number;
-  touchZ: number;
-};
+export type { GameStatus, HudStats, InputState } from './game-simulation';
 
 type Enemy = { id: number; x: number; z: number; speed: number; variant: number };
 type Bullet = { id: number; x: number; z: number; vx: number; vz: number; life: number };
@@ -35,16 +42,7 @@ type Engine = {
   nextId: number; ended: boolean; enemies: Enemy[]; bullets: Bullet[]; explosions: Explosion[];
 };
 
-const ARENA_LIMIT = 8.15;
 const MAGAZINE_SIZE = 60;
-const OBSTACLES: Array<{ x: number; z: number; halfX: number; halfZ: number }> = [
-  { x: -3.05, z: -2.35, halfX: 1.1, halfZ: .27 },
-  { x: 2.95, z: -2.35, halfX: 1.12, halfZ: .27 },
-  { x: -3.05, z: 2.35, halfX: 1.1, halfZ: .27 },
-  { x: 2.95, z: 2.35, halfX: 1.12, halfZ: .27 },
-  { x: 0, z: -4.35, halfX: .65, halfZ: .4 },
-  { x: 0, z: 4.35, halfX: .65, halfZ: .4 },
-];
 const freshEngine = (): Engine => ({
   playerX: 0, playerZ: 0, health: 100, shield: 50, score: 0, kills: 0,
   ammo: MAGAZINE_SIZE, reserveAmmo: 120, grenades: 3, reloadTimer: 0, shieldDelay: 0,
@@ -65,6 +63,8 @@ const toHud = (game: Engine): HudStats => ({
     THREE.MathUtils.clamp((enemy.x - game.playerX) / 7, -1, 1),
     THREE.MathUtils.clamp((enemy.z - game.playerZ) / 7, -1, 1),
   ]),
+  reload: 0,
+  damageFlash: 0,
 });
 
 function clampToArena(x: number, z: number) {
@@ -125,7 +125,7 @@ function ArenaGeometry() {
   });
   return (
     <>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -.02, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -.02, 0]} receiveShadow>
         <circleGeometry args={[9.3, 96]} />
         <meshStandardMaterial color="#454e55" roughness={.96} metalness={.08} />
       </mesh>
@@ -156,7 +156,7 @@ function ArenaGeometry() {
       ))}
       {OBSTACLES.map((obstacle, index) => (
         <group key={index} position={[obstacle.x, 0, obstacle.z]}>
-          <mesh position={[0, .38, 0]}>
+          <mesh position={[0, .38, 0]} castShadow receiveShadow>
             <boxGeometry args={[obstacle.halfX * 2, .76, obstacle.halfZ * 2]} />
             <meshStandardMaterial color="#667178" roughness={.9} metalness={.08} />
           </mesh>
@@ -563,8 +563,126 @@ function GameLoop({ active, resetKey, inputRef, onHud, onGameOver, onPause }: Sc
   );
 }
 
-function CameraAndLights() {
+function SimulationGameLoop({
+  active,
+  resetKey,
+  inputRef,
+  onHud,
+  onGameOver,
+  onPause,
+  engineRef,
+}: SceneProps & { engineRef: MutableRefObject<SimulationEngine> }) {
+  const [enemies, setEnemies] = useState<SimulationEnemy[]>([]);
+  const [bullets, setBullets] = useState<SimulationBullet[]>([]);
+  const [grenades, setGrenades] = useState<GrenadeProjectile[]>([]);
+  const [explosions, setExplosions] = useState<SimulationExplosion[]>([]);
+  const [pickups, setPickups] = useState<AmmoPickup[]>([]);
+  const playerRef = useRef<THREE.Group | null>(null);
+  const rigRef = useRef(createOperatorRig());
+  const motionRef = useRef<OperatorMotion>({ time: 0, speed: 0, firePulse: 0, reloadBlend: 0, damagePulse: 0 });
+  const hudClock = useRef(0);
+  const hudRef = useRef(onHud);
+  const gameOverRef = useRef(onGameOver);
+  const pauseRef = useRef(onPause);
+  hudRef.current = onHud;
+  gameOverRef.current = onGameOver;
+  pauseRef.current = onPause;
+
+  useEffect(() => {
+    engineRef.current = freshSimulation();
+    setEnemies([]);
+    setBullets([]);
+    setGrenades([]);
+    setExplosions([]);
+    setPickups([]);
+    hudClock.current = 0;
+    motionRef.current = { time: 0, speed: 0, firePulse: 0, reloadBlend: 0, damagePulse: 0 };
+  }, [engineRef, resetKey]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      inputRef.current.keys[event.code] = event.type === 'keydown';
+      if (event.type === 'keydown' && event.code === 'KeyP' && !event.repeat && active) pauseRef.current();
+      if (event.type === 'keydown' && event.code === 'Space') inputRef.current.fire = true;
+      if (event.type === 'keyup' && event.code === 'Space') inputRef.current.fire = false;
+    };
+    const releaseKeys = () => {
+      inputRef.current.fire = false;
+      inputRef.current.keys = {};
+    };
+    const releaseFire = () => { inputRef.current.fire = false; };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKey);
+    window.addEventListener('blur', releaseKeys);
+    window.addEventListener('pointerup', releaseFire);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKey);
+      window.removeEventListener('blur', releaseKeys);
+      window.removeEventListener('pointerup', releaseFire);
+    };
+  }, [active, inputRef]);
+
+  useFrame((_state, rawDelta) => {
+    if (!active || engineRef.current.ended) return;
+    const game = engineRef.current;
+    const events = stepGame(game, inputRef.current, rawDelta);
+    if (playerRef.current) {
+      playerRef.current.position.set(game.playerX, .02 + Math.sin(game.playerPhase * 14) * .012 * game.playerSpeed, game.playerZ);
+      playerRef.current.rotation.y = Math.atan2(inputRef.current.aimX - game.playerX, inputRef.current.aimZ - game.playerZ);
+    }
+    motionRef.current = {
+      time: game.playerPhase,
+      speed: game.playerSpeed,
+      firePulse: game.firePulse,
+      reloadBlend: game.reloadDuration > 0 ? 1 - game.reloadTimer / game.reloadDuration : 0,
+      damagePulse: game.damageFlash,
+    };
+
+    if (events.enemiesChanged) setEnemies([...game.enemies]);
+    if (events.bulletsChanged) setBullets([...game.bullets]);
+    if (events.grenadesChanged) setGrenades([...game.grenades]);
+    if (events.explosionsChanged) setExplosions([...game.explosions]);
+    if (events.pickupsChanged) setPickups([...game.pickups]);
+    if (game.ended) {
+      gameOverRef.current(simulationHud(game));
+      return;
+    }
+
+    hudClock.current += Math.min(rawDelta, .05);
+    if (hudClock.current >= .1) {
+      hudClock.current = 0;
+      hudRef.current(simulationHud(game));
+    }
+  });
+
+  return (
+    <>
+      <OperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />
+      {enemies.map((enemy) => <SimulationSleeper key={enemy.id} enemy={enemy} />)}
+      {bullets.map((bullet) => <SimulationBulletMesh key={bullet.id} bullet={bullet} />)}
+      {grenades.map((grenade) => <GrenadeMesh key={grenade.id} grenade={grenade} />)}
+      {explosions.map((explosion) => <SimulationExplosionMesh key={explosion.id} explosion={explosion} />)}
+      {pickups.map((pickup) => <AmmoPickupMesh key={pickup.id} pickup={pickup} />)}
+      <ParticleField engineRef={engineRef} />
+    </>
+  );
+}
+
+function SimulationSleeper({ enemy }: { enemy: SimulationEnemy }) {
+  const rootRef = useRef<THREE.Group | null>(null);
+  return <SleeperCharacter enemy={enemy} rootRef={rootRef} />;
+}
+
+function CameraAndLights({
+  engineRef,
+  active,
+}: {
+  engineRef: MutableRefObject<SimulationEngine>;
+  active: boolean;
+}) {
   const { camera, size } = useThree();
+  const basePosition = useRef(new THREE.Vector3());
   useEffect(() => {
     const perspectiveCamera = camera as THREE.PerspectiveCamera;
     const verticalHalfFov = THREE.MathUtils.degToRad(perspectiveCamera.fov / 2);
@@ -577,13 +695,34 @@ function CameraAndLights() {
       verticalExtent / Math.tan(verticalHalfFov),
     ) * 1.1;
     camera.position.set(0, distance * Math.cos(tilt), distance * Math.sin(tilt));
+    basePosition.current.copy(camera.position);
     camera.lookAt(0, 0, 0);
     perspectiveCamera.updateProjectionMatrix();
   }, [camera, size.width, size.height]);
+  useFrame((state) => {
+    const shake = active ? engineRef.current.cameraShake : 0;
+    camera.position.set(
+      basePosition.current.x + Math.sin(state.clock.elapsedTime * 91) * shake * .012,
+      basePosition.current.y,
+      basePosition.current.z + Math.cos(state.clock.elapsedTime * 83) * shake * .01,
+    );
+    camera.lookAt(0, 0, 0);
+  });
   return (
     <>
       <ambientLight intensity={.48} color="#a9bac3" />
-      <directionalLight position={[3, 10, 5]} intensity={1.55} color="#c8d6df" />
+      <directionalLight
+        castShadow
+        position={[3, 10, 5]}
+        intensity={1.55}
+        color="#c8d6df"
+        shadow-mapSize={[1024, 1024]}
+        shadow-camera-left={-12}
+        shadow-camera-right={12}
+        shadow-camera-top={12}
+        shadow-camera-bottom={-12}
+        shadow-bias={-.0002}
+      />
       <pointLight position={[-5, 4, -3]} intensity={9} distance={15} color="#165e72" />
       <fog attach="fog" args={['#0f1320', 12, 28]} />
     </>
@@ -592,7 +731,7 @@ function CameraAndLights() {
 
 function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause }: SceneProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const engine = useRef<Engine>(freshEngine());
+  const engine = useRef<SimulationEngine>(freshSimulation());
   const hudRef = useRef(onHud);
   const gameOverRef = useRef(onGameOver);
   const pauseRef = useRef(onPause);
@@ -601,7 +740,7 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
   pauseRef.current = onPause;
 
   useEffect(() => {
-    engine.current = freshEngine();
+    engine.current = freshSimulation();
   }, [resetKey]);
 
   useEffect(() => {
@@ -611,16 +750,17 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
       if (event.type === 'keydown' && event.code === 'Space') inputRef.current.fire = true;
       if (event.type === 'keyup' && event.code === 'Space') inputRef.current.fire = false;
     };
-    const release = () => { inputRef.current.fire = false; inputRef.current.keys = {}; };
+    const releaseKeys = () => { inputRef.current.fire = false; inputRef.current.keys = {}; };
+    const releaseFire = () => { inputRef.current.fire = false; };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKey);
-    window.addEventListener('blur', release);
-    window.addEventListener('pointerup', release);
+    window.addEventListener('blur', releaseKeys);
+    window.addEventListener('pointerup', releaseFire);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
-      window.removeEventListener('blur', release);
-      window.removeEventListener('pointerup', release);
+      window.removeEventListener('blur', releaseKeys);
+      window.removeEventListener('pointerup', releaseFire);
     };
   }, [active, inputRef]);
 
@@ -661,132 +801,22 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
     const draw = () => {
       const width = size.width;
       const height = size.height;
-      const game = engine.current;
+      const simulation = engine.current;
       const now = performance.now();
       const dt = previousTime ? Math.min((now - previousTime) / 1000, .05) : 0;
       previousTime = now;
       const map = arenaMap(width, height);
 
-      if (active && !game.ended) {
-        game.survival += dt;
-        game.wave = Math.floor(game.survival / 12) + 1;
-        let x = (inputRef.current.keys.KeyD || inputRef.current.keys.ArrowRight ? 1 : 0)
-          - (inputRef.current.keys.KeyA || inputRef.current.keys.ArrowLeft ? 1 : 0) + inputRef.current.touchX;
-        let z = (inputRef.current.keys.KeyS || inputRef.current.keys.ArrowDown ? 1 : 0)
-          - (inputRef.current.keys.KeyW || inputRef.current.keys.ArrowUp ? 1 : 0) + inputRef.current.touchZ;
-        const length = Math.hypot(x, z);
-        if (length > 1) { x /= length; z /= length; }
-        const playerPosition = moveActor(game.playerX, game.playerZ, x * dt * 6.1, z * dt * 6.1, .3);
-        game.playerX = playerPosition.x;
-        game.playerZ = playerPosition.z;
-
-        game.spawnTimer -= dt;
-        if (game.spawnTimer <= 0) {
-          const angle = Math.random() * Math.PI * 2;
-          const distance = 8.6 + Math.random() * 1.1;
-          game.enemies.push({
-            id: game.nextId++, x: Math.cos(angle) * distance, z: Math.sin(angle) * distance,
-            speed: 1.15 + game.wave * .1 + Math.random() * .38, variant: Math.floor(Math.random() * 3),
-          });
-          game.spawnTimer = Math.max(.26, 1.12 - game.wave * .065) * (.75 + Math.random() * .4);
-        }
-
-        game.fireTimer -= dt;
-        if (inputRef.current.keys.KeyR && game.reloadTimer <= 0 && game.ammo < MAGAZINE_SIZE && game.reserveAmmo > 0) {
-          game.reloadTimer = 1.15;
-        }
-        if (game.reloadTimer > 0) {
-          game.reloadTimer -= dt;
-          if (game.reloadTimer <= 0) {
-            const loaded = Math.min(MAGAZINE_SIZE - game.ammo, game.reserveAmmo);
-            game.ammo += loaded;
-            game.reserveAmmo -= loaded;
-            game.reloadTimer = 0;
+      if (active && !simulation.ended) {
+        stepGame(simulation, inputRef.current, dt);
+        if (simulation.ended) {
+          gameOverRef.current(simulationHud(simulation));
+        } else {
+          hudClock += dt;
+          if (hudClock >= .1) {
+            hudClock = 0;
+            hudRef.current(simulationHud(simulation));
           }
-        }
-
-        const grenadePressed = inputRef.current.keys.KeyG && !game.grenadeWasDown;
-        game.grenadeWasDown = inputRef.current.keys.KeyG;
-        if (grenadePressed && game.grenades > 0) {
-          game.grenades -= 1;
-          const dx = inputRef.current.aimX - game.playerX;
-          const dz = inputRef.current.aimZ - game.playerZ;
-          const distance = Math.hypot(dx, dz) || 1;
-          const range = Math.min(4.2, distance);
-          const impact = clampToArena(game.playerX + (dx / distance) * range, game.playerZ + (dz / distance) * range);
-          game.explosions.push({ id: game.nextId++, x: impact.x, z: impact.z, life: .45 });
-          for (let index = game.enemies.length - 1; index >= 0; index -= 1) {
-            const enemy = game.enemies[index];
-            if (Math.hypot(enemy.x - impact.x, enemy.z - impact.z) <= 2.5) {
-              game.enemies.splice(index, 1);
-              game.score += 25 + game.wave * 5;
-              game.kills += 1;
-            }
-          }
-        }
-
-        if ((inputRef.current.fire || inputRef.current.keys.Space) && game.fireTimer <= 0 && game.reloadTimer <= 0 && game.ammo > 0) {
-          const dx = inputRef.current.aimX - game.playerX;
-          const dz = inputRef.current.aimZ - game.playerZ;
-          const distance = Math.hypot(dx, dz) || 1;
-          game.bullets.push({
-            id: game.nextId++, x: game.playerX, z: game.playerZ,
-            vx: dx / distance * 14, vz: dz / distance * 14, life: 1.25,
-          });
-          game.ammo -= 1;
-          game.fireTimer = .13;
-        }
-
-        const livingBullets: Bullet[] = [];
-        for (const bullet of game.bullets) {
-          bullet.x += bullet.vx * dt;
-          bullet.z += bullet.vz * dt;
-          bullet.life -= dt;
-          if (bullet.life <= 0 || Math.abs(bullet.x) > 10 || Math.abs(bullet.z) > 10) continue;
-          let hit = false;
-          for (let index = game.enemies.length - 1; index >= 0; index -= 1) {
-            const enemy = game.enemies[index];
-            if (Math.hypot(enemy.x - bullet.x, enemy.z - bullet.z) < .65) {
-              game.enemies.splice(index, 1);
-              game.score += 25 + game.wave * 5;
-              game.kills += 1;
-              hit = true;
-              break;
-            }
-          }
-          if (!hit) livingBullets.push(bullet);
-        }
-        game.bullets = livingBullets;
-
-        for (const enemy of game.enemies) {
-          const dx = game.playerX - enemy.x;
-          const dz = game.playerZ - enemy.z;
-          const distance = Math.hypot(dx, dz) || 1;
-          const enemyPosition = moveActor(enemy.x, enemy.z, dx / distance * enemy.speed * dt, dz / distance * enemy.speed * dt, .23);
-          enemy.x = enemyPosition.x;
-          enemy.z = enemyPosition.z;
-          if (distance < .76) {
-            let damage = dt * (8.5 + game.wave * .45);
-            const absorbed = Math.min(game.shield, damage);
-            game.shield -= absorbed;
-            damage -= absorbed;
-            game.health -= damage;
-            game.shieldDelay = 4;
-          }
-        }
-        if (game.shieldDelay > 0) game.shieldDelay -= dt;
-        else game.shield = Math.min(50, game.shield + dt * 7.5);
-        game.explosions = game.explosions.filter((explosion) => (explosion.life -= dt) > 0);
-
-        if (game.health <= 0) {
-          game.health = 0;
-          game.ended = true;
-          gameOverRef.current(toHud(game));
-        }
-        hudClock += dt;
-        if (hudClock >= .1) {
-          hudClock = 0;
-          hudRef.current(toHud(game));
         }
       }
 
@@ -848,28 +878,85 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
         }
       }
 
-      for (const explosion of game.explosions) {
+      for (const explosion of simulation.explosions) {
         const [sx, sy] = toScreen(explosion.x, explosion.z, map);
-        const progress = 1 - explosion.life / .45;
+        const progress = 1 - explosion.life / explosion.duration;
+        const fade = Math.max(0, explosion.life / explosion.duration);
         ctx.beginPath();
-        ctx.ellipse(sx, sy, (8 + progress * 90) * (map.sx / map.sy), 8 + progress * 26, 0, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(93, 227, 250, ${Math.max(.1, explosion.life / .45)})`;
-        ctx.lineWidth = 3;
+        ctx.ellipse(sx, sy, explosion.radius * progress * map.sx, explosion.radius * progress * map.sy, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(142, 244, 255, ${fade})`;
+        ctx.lineWidth = 2 + fade * 2;
         ctx.shadowColor = '#55ddf3';
-        ctx.shadowBlur = 16;
+        ctx.shadowBlur = 22;
         ctx.stroke();
+        ctx.fillStyle = `rgba(69, 204, 229, ${fade * .15})`;
+        ctx.fill();
         ctx.shadowBlur = 0;
       }
-      for (const bullet of game.bullets) {
-        const [sx, sy] = toScreen(bullet.x, bullet.z, map);
-        ctx.shadowColor = '#5de3fa';
-        ctx.shadowBlur = 13;
-        ctx.fillStyle = '#c6f8ff';
-        ctx.beginPath(); ctx.arc(sx, sy, 4, 0, Math.PI * 2); ctx.fill();
+      for (const pickup of simulation.pickups) {
+        const [sx, sy] = toScreen(pickup.x, pickup.z, map);
+        const pulse = .75 + Math.sin(pickup.phase * 4) * .18;
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(Math.sin(pickup.phase) * .12);
+        ctx.shadowColor = '#4edff6';
+        ctx.shadowBlur = 18;
+        ctx.strokeStyle = `rgba(98, 232, 250, ${pulse})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 13 + pulse * 2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.lineCap = 'round';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(-10, 0); ctx.lineTo(8, 0);
+        ctx.moveTo(-2, 0); ctx.lineTo(-2, 7);
+        ctx.moveTo(7, 0); ctx.lineTo(11, -3);
+        ctx.stroke();
+        ctx.restore();
+        ctx.shadowBlur = 0;
       }
-      for (const enemy of game.enemies) {
+      for (const grenade of simulation.grenades) {
+        const [sx, sy] = toScreen(grenade.x, grenade.z, map);
+        const liftedY = sy - grenade.y * map.sy;
+        ctx.fillStyle = 'rgba(0,0,0,.35)';
+        ctx.beginPath(); ctx.ellipse(sx, sy, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowColor = '#55e2f8';
+        ctx.shadowBlur = 13;
+        ctx.fillStyle = '#c8fbff';
+        ctx.beginPath(); ctx.arc(sx, liftedY, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#45cfe8';
+        ctx.beginPath(); ctx.arc(sx, liftedY, 2.2, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+      for (const particle of simulation.particles) {
+        const [sx, sy] = toScreen(particle.x, particle.z, map);
+        const fade = Math.max(0, particle.life / particle.duration);
+        ctx.globalAlpha = fade;
+        ctx.fillStyle = particle.color;
+        ctx.shadowColor = particle.color;
+        ctx.shadowBlur = 7;
+        ctx.beginPath();
+        ctx.arc(sx, sy - particle.y * map.sy, Math.max(1, particle.size * 34), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+      for (const bullet of simulation.bullets) {
+        const [sx, sy] = toScreen(bullet.x, bullet.z, map);
+        const [trailX, trailY] = toScreen(bullet.x - bullet.vx * .022, bullet.z - bullet.vz * .022, map);
+        ctx.shadowColor = '#5de3fa';
+        ctx.shadowBlur = 11;
+        ctx.strokeStyle = 'rgba(105, 230, 249, .72)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(trailX, trailY - bullet.y * map.sy); ctx.lineTo(sx, sy - bullet.y * map.sy); ctx.stroke();
+        ctx.fillStyle = '#c6f8ff';
+        ctx.beginPath(); ctx.arc(sx, sy - bullet.y * map.sy, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+      for (const enemy of simulation.enemies) {
         const [sx, sy] = toScreen(enemy.x, enemy.z, map);
-        const angle = Math.atan2((game.playerZ - enemy.z) * map.sy, (game.playerX - enemy.x) * map.sx) + Math.PI / 2;
+        const angle = Math.atan2((simulation.playerZ - enemy.z) * map.sy, (simulation.playerX - enemy.x) * map.sx) + Math.PI / 2;
         ctx.save();
         ctx.translate(sx, sy);
         ctx.rotate(angle);
@@ -882,7 +969,7 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
         ctx.strokeStyle = '#9ca7a5';
         ctx.lineWidth = 4;
         ctx.beginPath(); ctx.moveTo(-8, -6); ctx.lineTo(-14, 2); ctx.moveTo(8, -6); ctx.lineTo(14, 1); ctx.stroke();
-        ctx.fillStyle = '#3f4a4b';
+        ctx.fillStyle = enemy.hitFlash > 0 ? '#d6faff' : enemy.variant === 2 ? '#525d5e' : '#3f4a4b';
         ctx.fillRect(-9, -11, 18, 17);
         ctx.fillStyle = '#b3bebd';
         ctx.beginPath(); ctx.ellipse(0, -16, 7, 8, 0, 0, Math.PI * 2); ctx.fill();
@@ -893,10 +980,17 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
         ctx.fillRect(2, -18, 2.5, 2);
         ctx.shadowBlur = 0;
         ctx.restore();
+        if (enemy.health < enemy.maxHealth) {
+          const ratio = Math.max(0, enemy.health / enemy.maxHealth);
+          ctx.fillStyle = 'rgba(5,12,17,.78)';
+          ctx.fillRect(sx - 11, sy - 29, 22, 3);
+          ctx.fillStyle = enemy.variant === 2 ? '#eeb86b' : '#55dff2';
+          ctx.fillRect(sx - 10, sy - 28, 20 * ratio, 1);
+        }
       }
-      const [playerX, playerY] = toScreen(game.playerX, game.playerZ, map);
-      const aimX = (inputRef.current.aimX - game.playerX) * map.sx;
-      const aimY = (inputRef.current.aimZ - game.playerZ) * map.sy;
+      const [playerX, playerY] = toScreen(simulation.playerX, simulation.playerZ, map);
+      const aimX = (inputRef.current.aimX - simulation.playerX) * map.sx;
+      const aimY = (inputRef.current.aimZ - simulation.playerZ) * map.sy;
       ctx.save();
       ctx.translate(playerX, playerY);
       ctx.rotate(Math.atan2(aimY, aimX) + Math.PI / 2);
@@ -924,6 +1018,12 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
       ctx.shadowBlur = 10;
       ctx.fillStyle = '#54e6ff';
       ctx.fillRect(6, -16, 5, 2);
+      if (simulation.firePulse > 0) {
+        ctx.shadowColor = '#8af5ff';
+        ctx.shadowBlur = 18;
+        ctx.fillStyle = '#d5fbff';
+        ctx.beginPath(); ctx.ellipse(9, -29, 5 + simulation.firePulse * 20, 2.5 + simulation.firePulse * 10, 0, 0, Math.PI * 2); ctx.fill();
+      }
       ctx.restore();
       ctx.shadowBlur = 0;
 
@@ -976,6 +1076,7 @@ function supportsWebGL() {
 
 export function GameScene(props: SceneProps) {
   const [webglAvailable] = useState(supportsWebGL);
+  const engineRef = useRef<SimulationEngine>(freshSimulation());
   if (!webglAvailable) return <FallbackScene {...props} />;
 
   return (
@@ -983,14 +1084,18 @@ export function GameScene(props: SceneProps) {
       className="game-canvas"
       camera={{ position: [0, 19, 14], fov: 47, near: .1, far: 100 }}
       dpr={[1, 1.5]}
+      shadows="percentage"
       gl={{ antialias: true, powerPreference: 'high-performance' }}
-      onCreated={({ gl }) => { gl.setClearColor('#0f1320'); }}
+      onCreated={({ gl }) => {
+        gl.setClearColor('#0f1320');
+        gl.shadowMap.type = THREE.PCFShadowMap;
+      }}
       fallback={<FallbackScene {...props} />}
     >
-      <CameraAndLights />
+      <CameraAndLights engineRef={engineRef} active={props.active} />
       <ArenaGeometry />
       <Ground inputRef={props.inputRef} />
-      <GameLoop {...props} />
+      <SimulationGameLoop {...props} engineRef={engineRef} />
     </Canvas>
   );
 }

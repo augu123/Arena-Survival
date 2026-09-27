@@ -21,6 +21,8 @@ const initialHud: ArenaHud = {
   survival: 0,
   enemies: 0,
   radar: [],
+  reload: 0,
+  damageFlash: 0,
 };
 const initialInput: InputState = { keys: {}, fire: false, aimX: 0, aimZ: -5, touchX: 0, touchZ: 0 };
 
@@ -94,6 +96,11 @@ function GameHome() {
         <div className="hud-layer">
           {status === 'playing' && (
             <>
+              <div
+                className="damage-flash"
+                aria-hidden="true"
+                style={{ opacity: Math.min(.42, hud.damageFlash * .42) }}
+              />
               <div className="hud-topline">
                 <div className="hud-left-cluster">
                   <section className="hud-panel vitals-panel" data-testid="vitals-panel">
@@ -146,6 +153,7 @@ function GameHome() {
                   <div className="weapon-data">
                     <div className="weapon-name">VX-9 <span>CARBINE</span></div>
                     <div className="ammo-readout"><strong data-testid="ammo-stat">{hud.ammo.toString().padStart(2, '0')}</strong><span data-testid="reserve-ammo-stat">/ {hud.reserveAmmo.toString().padStart(3, '0')}</span></div>
+                    {hud.reload > 0 && <div className="reload-track" aria-label="Reloading"><i style={{ width: `${hud.reload * 100}%` }} /></div>}
                     <div className="weapon-rule" />
                     <div className="weapon-meta"><span>AMMO</span><span className="grenade-count"><i className="grenade-icon" /> <b data-testid="grenade-stat">{hud.grenades}</b></span></div>
                   </div>
@@ -155,7 +163,7 @@ function GameHome() {
                   </div>
                 </section>
               </div>
-              <div className="bottom-hint">WASD / arrows to move <span>•</span> mouse aim + hold click to fire <span>•</span> P to pause</div>
+              <div className="bottom-hint">WASD / arrows to move <span>•</span> shift to sprint <span>•</span> mouse aim + hold click to fire <span>•</span> P to pause</div>
               <div className="touch-ui">
                 <div className="touch-stick touch-control" data-testid="touch-move" onPointerDown={setTouchVector} onPointerMove={(event) => { if (touchActive) setTouchVector(event); }} onPointerUp={clearTouch} onPointerCancel={clearTouch}><span className="stick-core" /></div>
                 <div className="touch-actions">
@@ -174,7 +182,7 @@ function GameHome() {
               <div className="operator-line"><span>OPERATOR</span> ELIAS “JACK” THORNE <i>•</i> LIVE COMBAT SIMULATION</div>
               <p className="game-copy">The perimeter is gone. Hold the center of the concrete ring, keep moving, and make every clean shot buy another second.</p>
               <button className="primary-button" data-testid="start-button" onClick={startGame}><span>Enter the arena</span><b>→</b></button>
-              <div className="control-rail"><span><b className="keycap">WASD</b> Move</span><span><b className="keycap">MOUSE</b> Aim / fire</span><span><b className="keycap">R</b> Reload</span></div>
+              <div className="control-rail"><span><b className="keycap">WASD</b> Move</span><span><b className="keycap">SHIFT</b> Sprint</span><span><b className="keycap">MOUSE</b> Aim / fire</span><span><b className="keycap">R</b> Reload</span><span><b className="keycap">G</b> Frag</span></div>
               {best > 0 && <div className="local-best">LOCAL BEST <strong>{best.toString().padStart(5, '0')}</strong></div>}
             </section>
           )}
