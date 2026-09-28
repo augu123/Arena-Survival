@@ -1,6 +1,7 @@
 import { type MutableRefObject, useEffect, useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
+import { createOperatorCutout, OPERATOR_SHEET_URL, OPERATOR_TEXTURE_REGION } from './operator-texture';
 import {
   ARENA_LIMIT,
   MAX_PARTICLES,
@@ -201,7 +202,7 @@ function CarbineModel({
   );
 }
 
-export function OperatorCharacter({
+export function LegacyOperatorCharacter({
   rootRef,
   rigRef,
   motionRef,
@@ -330,6 +331,81 @@ export function OperatorCharacter({
           <Part geometry={GEO.sphere} material={MAT.skinShade} position={[.148, -.015, 0]} scale={[.025, .045, .035]} />
         </group>
         <CarbineModel rigRef={rigRef} motionRef={motionRef} scale={.88} />
+      </group>
+    </group>
+  );
+}
+
+export function OperatorCharacter({
+  rootRef,
+  rigRef,
+  motionRef,
+}: {
+  rootRef: MutableRefObject<THREE.Group | null>;
+  rigRef: MutableRefObject<OperatorRig>;
+  motionRef: MutableRefObject<OperatorMotion>;
+}) {
+  const spriteRef = useRef<THREE.Mesh>(null);
+  const sheetTexture = useLoader(THREE.TextureLoader, OPERATOR_SHEET_URL);
+  const textures = useMemo(() => {
+    const map = sheetTexture.clone();
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.wrapS = THREE.ClampToEdgeWrapping;
+    map.wrapT = THREE.ClampToEdgeWrapping;
+    map.repeat.set(OPERATOR_TEXTURE_REGION.width, OPERATOR_TEXTURE_REGION.height);
+    map.offset.set(
+      OPERATOR_TEXTURE_REGION.x,
+      1 - OPERATOR_TEXTURE_REGION.top - OPERATOR_TEXTURE_REGION.height,
+    );
+    map.needsUpdate = true;
+
+    const cutout = createOperatorCutout(sheetTexture.image as HTMLImageElement);
+    const alphaMap = new THREE.CanvasTexture(cutout);
+    alphaMap.colorSpace = THREE.NoColorSpace;
+    alphaMap.wrapS = THREE.ClampToEdgeWrapping;
+    alphaMap.wrapT = THREE.ClampToEdgeWrapping;
+    alphaMap.needsUpdate = true;
+    return { map, alphaMap };
+  }, [sheetTexture]);
+
+  useEffect(() => () => {
+    textures.map.dispose();
+    textures.alphaMap.dispose();
+  }, [textures]);
+
+  useFrame(() => {
+    const motion = motionRef.current;
+    const stride = Math.min(1, motion.speed);
+    const swing = Math.sin(motion.time * 10.5);
+    if (spriteRef.current) {
+      spriteRef.current.position.y = .91 + Math.abs(swing) * .025 * stride;
+      spriteRef.current.rotation.z = -.035 * swing * stride + motion.damagePulse * .035;
+    }
+  });
+
+  return (
+    <group ref={rootRef} dispose={null}>
+      <mesh position={[0, .035, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <circleGeometry args={[.43, 28]} />
+        <primitive object={MAT.groundShadow} attach="material" />
+      </mesh>
+      <mesh position={[0, .04, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <ringGeometry args={[.39, .44, 32]} />
+        <meshBasicMaterial color="#48d9f5" transparent opacity={.54} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh ref={spriteRef} position={[0, .91, .055]} castShadow>
+        <planeGeometry args={[.82, 1.78]} />
+        <meshBasicMaterial
+          map={textures.map}
+          alphaMap={textures.alphaMap}
+          transparent
+          alphaTest={.04}
+          side={THREE.DoubleSide}
+          toneMapped={false}
+        />
+      </mesh>
+      <group position={[.17, .83, .09]}>
+        <CarbineModel rigRef={rigRef} motionRef={motionRef} scale={.84} />
       </group>
     </group>
   );
