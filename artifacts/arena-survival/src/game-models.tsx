@@ -126,7 +126,7 @@ export function createOperatorRig(): OperatorRig {
   };
 }
 
-function CarbineModel({
+export function CarbineModel({
   rigRef,
   motionRef,
   scale = 1,

@@ -28,11 +28,11 @@ import {
   createOperatorRig,
   ExplosionMesh as SimulationExplosionMesh,
   GrenadeMesh,
-  OperatorCharacter,
   ParticleField,
   SleeperCharacter,
   type OperatorMotion,
 } from './game-models';
+import { OperatorCharacter3D } from './operator-character-3d';
 import { createOperatorCutout, OPERATOR_SHEET_URL } from './operator-texture';
 
 export type { GameStatus, HudStats, InputState } from './game-simulation';
@@ -798,7 +798,7 @@ function SimulationGameLoop({
 
   return (
     <>
-      <OperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />
+      <OperatorCharacter3D rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />
       {enemies.map((enemy) => <SimulationSleeper key={enemy.id} enemy={enemy} />)}
       {bullets.map((bullet) => <SimulationBulletMesh key={bullet.id} bullet={bullet} />)}
       {grenades.map((grenade) => <GrenadeMesh key={grenade.id} grenade={grenade} />)}
