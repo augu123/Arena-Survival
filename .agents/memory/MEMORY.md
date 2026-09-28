@@ -1,2 +1,3 @@
 - [WebGL preview fallback](webgl-preview-fallback.md) — detect missing WebGL before mounting R3F; Canvas-level fallback did not catch context creation failures in preview.
 - [Workspace dependency reconciliation](workspace-dependency-reconciliation.md) — generic package installs target the pnpm root; reconcile declared artifact dependencies within their workspace package.
+- [Three.js alpha masks](three-alpha-masks.md) — alphaMap reads the green color channel, not canvas alpha; convert transparent cutouts to opaque grayscale masks.

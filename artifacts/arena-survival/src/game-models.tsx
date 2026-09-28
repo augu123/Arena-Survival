@@ -1,7 +1,7 @@
 import { type MutableRefObject, useEffect, useMemo, useRef } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
-import { createOperatorCutout, OPERATOR_SHEET_URL, OPERATOR_TEXTURE_REGION } from './operator-texture';
+import { createOperatorAlphaMask, createOperatorCutout, OPERATOR_SHEET_URL, OPERATOR_TEXTURE_REGION } from './operator-texture';
 import {
   ARENA_LIMIT,
   MAX_PARTICLES,
@@ -346,6 +346,7 @@ export function OperatorCharacter({
   motionRef: MutableRefObject<OperatorMotion>;
 }) {
   const spriteRef = useRef<THREE.Mesh>(null);
+  const parentQuaternion = useMemo(() => new THREE.Quaternion(), []);
   const sheetTexture = useLoader(THREE.TextureLoader, OPERATOR_SHEET_URL);
   const textures = useMemo(() => {
     const map = sheetTexture.clone();
@@ -360,7 +361,7 @@ export function OperatorCharacter({
     map.needsUpdate = true;
 
     const cutout = createOperatorCutout(sheetTexture.image as HTMLImageElement);
-    const alphaMap = new THREE.CanvasTexture(cutout);
+    const alphaMap = new THREE.CanvasTexture(createOperatorAlphaMask(cutout));
     alphaMap.colorSpace = THREE.NoColorSpace;
     alphaMap.wrapS = THREE.ClampToEdgeWrapping;
     alphaMap.wrapT = THREE.ClampToEdgeWrapping;
@@ -373,13 +374,15 @@ export function OperatorCharacter({
     textures.alphaMap.dispose();
   }, [textures]);
 
-  useFrame(() => {
+  useFrame(({ camera }) => {
     const motion = motionRef.current;
     const stride = Math.min(1, motion.speed);
     const swing = Math.sin(motion.time * 10.5);
-    if (spriteRef.current) {
-      spriteRef.current.position.y = .91 + Math.abs(swing) * .025 * stride;
-      spriteRef.current.rotation.z = -.035 * swing * stride + motion.damagePulse * .035;
+    if (spriteRef.current && rootRef.current) {
+      rootRef.current.getWorldQuaternion(parentQuaternion);
+      spriteRef.current.quaternion.copy(parentQuaternion).invert().multiply(camera.quaternion);
+      spriteRef.current.rotateZ(-.035 * swing * stride + motion.damagePulse * .035);
+      spriteRef.current.position.y = .55 + Math.abs(swing) * .025 * stride;
     }
   });
 
@@ -393,7 +396,7 @@ export function OperatorCharacter({
         <ringGeometry args={[.39, .44, 32]} />
         <meshBasicMaterial color="#48d9f5" transparent opacity={.54} side={THREE.DoubleSide} />
       </mesh>
-      <mesh ref={spriteRef} position={[0, .91, .055]} castShadow>
+      <mesh ref={spriteRef} position={[0, .55, .055]} castShadow>
         <planeGeometry args={[.82, 1.78]} />
         <meshBasicMaterial
           map={textures.map}

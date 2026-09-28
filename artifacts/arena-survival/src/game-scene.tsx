@@ -33,6 +33,7 @@ import {
   SleeperCharacter,
   type OperatorMotion,
 } from './game-models';
+import { createOperatorCutout, OPERATOR_SHEET_URL } from './operator-texture';
 
 export type { GameStatus, HudStats, InputState } from './game-simulation';
 
@@ -913,6 +914,13 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
 
     const backdrop = new Image();
     backdrop.src = environmentImage;
+    const operatorImage = new Image();
+    let operatorSprite: HTMLCanvasElement | null = null;
+    operatorImage.onload = () => {
+      operatorSprite = createOperatorCutout(operatorImage);
+    };
+    operatorImage.onerror = () => console.error('Failed to load the operator character sheet.');
+    operatorImage.src = OPERATOR_SHEET_URL;
     let frame = 0;
     let previousTime = 0;
     let hudClock = 0;
@@ -1133,38 +1141,38 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
       const [playerX, playerY] = toScreen(simulation.playerX, simulation.playerZ, map);
       const aimX = (inputRef.current.aimX - simulation.playerX) * map.sx;
       const aimY = (inputRef.current.aimZ - simulation.playerZ) * map.sy;
+      const spriteWidth = Math.max(20, map.sx * .82);
+      const spriteHeight = Math.max(42, map.sy * 1.78);
       ctx.save();
       ctx.translate(playerX, playerY);
       ctx.rotate(Math.atan2(aimY, aimX) + Math.PI / 2);
       ctx.fillStyle = 'rgba(0,0,0,.4)';
       ctx.beginPath(); ctx.ellipse(0, 5, 15, 7, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#263137';
-      ctx.lineWidth = 6;
-      ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(-5, 5); ctx.lineTo(-7, 17); ctx.moveTo(5, 5); ctx.lineTo(7, 17); ctx.stroke();
-      ctx.fillStyle = '#59656a';
-      ctx.fillRect(-9, -10, 18, 20);
-      ctx.fillStyle = '#303a40';
-      ctx.fillRect(-8, -8, 16, 12);
-      ctx.fillStyle = '#c49a7e';
-      ctx.beginPath(); ctx.arc(0, -14, 7, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#282928';
-      ctx.beginPath(); ctx.arc(0, -17, 7, Math.PI, Math.PI * 2); ctx.fill();
+      if (operatorSprite) {
+        ctx.drawImage(operatorSprite, -spriteWidth / 2, -spriteHeight + 5, spriteWidth, spriteHeight);
+      } else {
+        ctx.fillStyle = '#60727a';
+        ctx.fillRect(-spriteWidth / 3, -spriteHeight * .72, spriteWidth * 2 / 3, spriteHeight * .65);
+        ctx.fillStyle = '#c49a7e';
+        ctx.beginPath(); ctx.arc(0, -spriteHeight * .8, spriteWidth * .18, 0, Math.PI * 2); ctx.fill();
+      }
+      const muzzleX = spriteWidth * .23;
       ctx.strokeStyle = '#9ca9ad';
       ctx.lineWidth = 4;
-      ctx.beginPath(); ctx.moveTo(4, -2); ctx.lineTo(9, -8); ctx.stroke();
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(muzzleX, -spriteHeight * .38); ctx.lineTo(muzzleX, -spriteHeight * .87); ctx.stroke();
       ctx.strokeStyle = '#48d9f5';
       ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(9, -8); ctx.lineTo(9, -24); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(muzzleX, -spriteHeight * .55); ctx.lineTo(muzzleX, -spriteHeight * .97); ctx.stroke();
       ctx.shadowColor = '#48d9f5';
       ctx.shadowBlur = 10;
       ctx.fillStyle = '#54e6ff';
-      ctx.fillRect(6, -16, 5, 2);
+      ctx.fillRect(muzzleX - 2, -spriteHeight * .73, 5, 2);
       if (simulation.firePulse > 0) {
         ctx.shadowColor = '#8af5ff';
         ctx.shadowBlur = 18;
         ctx.fillStyle = '#d5fbff';
-        ctx.beginPath(); ctx.ellipse(9, -29, 5 + simulation.firePulse * 20, 2.5 + simulation.firePulse * 10, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(muzzleX, -spriteHeight, 5 + simulation.firePulse * 20, 2.5 + simulation.firePulse * 10, 0, 0, Math.PI * 2); ctx.fill();
       }
       ctx.restore();
       ctx.shadowBlur = 0;
@@ -1175,6 +1183,8 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      operatorImage.onload = null;
+      operatorImage.onerror = null;
     };
   }, [active, inputRef, resetKey]);
 

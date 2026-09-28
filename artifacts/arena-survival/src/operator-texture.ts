@@ -3,10 +3,10 @@ import operatorSheetUrl from '@assets/Gemini_Generated_Image_s0ovzcs0ovzcs0ov_17
 export const OPERATOR_SHEET_URL = operatorSheetUrl;
 
 export const OPERATOR_TEXTURE_REGION = {
-  x: .047,
-  top: .025,
-  width: .246,
-  height: .411,
+  x: .043,
+  top: .032,
+  width: .264,
+  height: .423,
 };
 
 type ImageSource = HTMLImageElement | HTMLCanvasElement;
@@ -72,8 +72,30 @@ export function createOperatorCutout(image: ImageSource) {
   }
 
   for (let index = 0; index < count; index += 1) {
-    if (outside[index]) pixels.data[index * 4 + 3] = 0;
+    const x = index % width;
+    const y = Math.floor(index / width);
+    const topFrameCorner = y < height * .06 && (x < width * .09 || x > width * .91);
+    if (outside[index] || topFrameCorner) pixels.data[index * 4 + 3] = 0;
   }
   context.putImageData(pixels, 0, 0);
   return canvas;
+}
+
+export function createOperatorAlphaMask(cutout: HTMLCanvasElement) {
+  const mask = document.createElement('canvas');
+  mask.width = cutout.width;
+  mask.height = cutout.height;
+  const context = mask.getContext('2d');
+  const source = cutout.getContext('2d');
+  if (!context || !source) throw new Error('Could not create the operator alpha mask.');
+  const pixels = source.getImageData(0, 0, mask.width, mask.height);
+  for (let pixel = 0; pixel < pixels.data.length; pixel += 4) {
+    const opacity = pixels.data[pixel + 3];
+    pixels.data[pixel] = opacity;
+    pixels.data[pixel + 1] = opacity;
+    pixels.data[pixel + 2] = opacity;
+    pixels.data[pixel + 3] = 255;
+  }
+  context.putImageData(pixels, 0, 0);
+  return mask;
 }
