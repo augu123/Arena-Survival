@@ -18,6 +18,8 @@ const initialHud: ArenaHud = {
   grenades: 3,
   score: 0,
   wave: 1,
+  bossHealth: 0,
+  bossMaxHealth: 0,
   survival: 0,
   enemies: 0,
   radar: [],
@@ -139,6 +141,12 @@ function GameHome() {
                     <div className="mission-top"><span className="panel-kicker">THREAT INDEX</span><span className="signal-line">///</span></div>
                     <div className="wave-value"><span>WAVE</span><strong data-testid="wave-stat">{hud.wave.toString().padStart(2, '0')}</strong></div>
                     <div className="enemy-count"><span>HOSTILES ACTIVE</span><strong data-testid="enemy-stat">{hud.enemies.toString().padStart(2, '0')}</strong></div>
+                    {hud.bossMaxHealth > 0 && hud.bossHealth > 0 && (
+                      <div className="mini-boss-health" data-testid="boss-health-panel">
+                        <div><span>MINI BOSS</span><strong>{Math.ceil(hud.bossHealth / hud.bossMaxHealth * 100)}%</strong></div>
+                        <div className="mini-boss-meter"><i style={{ width: `${Math.max(0, Math.min(100, hud.bossHealth / hud.bossMaxHealth * 100))}%` }} /></div>
+                      </div>
+                    )}
                   </section>
                   <button className="pause-button" data-testid="pause-button" onClick={pauseGame}><span className="pause-glyph">||</span> Pause</button>
                 </div>

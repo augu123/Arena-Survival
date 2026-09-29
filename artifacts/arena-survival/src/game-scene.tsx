@@ -12,6 +12,7 @@ import {
   type Engine as SimulationEngine,
   type SupplyPickup,
   type Bullet as SimulationBullet,
+  type DartProjectile,
   type Enemy as SimulationEnemy,
   type Explosion as SimulationExplosion,
   type GrenadeProjectile,
@@ -25,6 +26,7 @@ import {
 import {
   SupplyPickupMesh,
   BulletMesh as SimulationBulletMesh,
+  DartMesh,
   createOperatorRig,
   ExplosionMesh as SimulationExplosionMesh,
   GrenadeMesh,
@@ -33,6 +35,7 @@ import {
   type OperatorMotion,
 } from './game-models';
 import { GLBOperatorCharacter } from './glb-operator-character';
+import { MiniBossCharacter } from './mini-boss-character';
 import { createOperatorCutout, OPERATOR_SHEET_URL } from './operator-texture';
 
 export type { GameStatus, HudStats, InputState } from './game-simulation';
@@ -62,6 +65,8 @@ const toHud = (game: Engine): HudStats => ({
   grenades: game.grenades,
   score: game.score,
   wave: game.wave,
+  bossHealth: 0,
+  bossMaxHealth: 0,
   survival: game.survival,
   enemies: game.enemies.length,
   radar: game.enemies.slice(0, 28).map((enemy) => [
@@ -714,6 +719,7 @@ function SimulationGameLoop({
 }: SceneProps & { engineRef: MutableRefObject<SimulationEngine> }) {
   const [enemies, setEnemies] = useState<SimulationEnemy[]>([]);
   const [bullets, setBullets] = useState<SimulationBullet[]>([]);
+  const [darts, setDarts] = useState<DartProjectile[]>([]);
   const [grenades, setGrenades] = useState<GrenadeProjectile[]>([]);
   const [explosions, setExplosions] = useState<SimulationExplosion[]>([]);
   const [pickups, setPickups] = useState<SupplyPickup[]>([]);
@@ -732,6 +738,7 @@ function SimulationGameLoop({
     engineRef.current = freshSimulation();
     setEnemies([]);
     setBullets([]);
+    setDarts([]);
     setGrenades([]);
     setExplosions([]);
     setPickups([]);
@@ -784,6 +791,7 @@ function SimulationGameLoop({
 
     if (events.enemiesChanged) setEnemies([...game.enemies]);
     if (events.bulletsChanged) setBullets([...game.bullets]);
+    if (events.dartsChanged) setDarts([...game.darts]);
     if (events.grenadesChanged) setGrenades([...game.grenades]);
     if (events.explosionsChanged) setExplosions([...game.explosions]);
     if (events.pickupsChanged) setPickups([...game.pickups]);
@@ -802,8 +810,11 @@ function SimulationGameLoop({
   return (
     <>
       <GLBOperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} engineRef={engineRef} />
-      {enemies.map((enemy) => <SimulationSleeper key={enemy.id} enemy={enemy} />)}
+      {enemies.map((enemy) => enemy.variant === 3
+        ? <MiniBossCharacter key={enemy.id} enemy={enemy} />
+        : <SimulationSleeper key={enemy.id} enemy={enemy} />)}
       {bullets.map((bullet) => <SimulationBulletMesh key={bullet.id} bullet={bullet} />)}
+      {darts.map((dart) => <DartMesh key={dart.id} dart={dart} />)}
       {grenades.map((grenade) => <GrenadeMesh key={grenade.id} grenade={grenade} />)}
       {explosions.map((explosion) => <SimulationExplosionMesh key={explosion.id} explosion={explosion} />)}
       {pickups.map((pickup) => <SupplyPickupMesh key={pickup.id} pickup={pickup} />)}
@@ -1088,6 +1099,24 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
         ctx.beginPath(); ctx.arc(sx, liftedY, 2.2, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
       }
+      for (const dart of simulation.darts) {
+        const [sx, sy] = toScreen(dart.x, dart.z, map);
+        const liftedY = sy - dart.y * map.sy;
+        const angle = Math.atan2(dart.vz * map.sy, dart.vx * map.sx);
+        ctx.save();
+        ctx.translate(sx, liftedY);
+        ctx.rotate(angle);
+        ctx.shadowColor = '#e8a843';
+        ctx.shadowBlur = 12;
+        ctx.strokeStyle = '#f3d28a';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(6, 0); ctx.stroke();
+        ctx.fillStyle = '#e8a843';
+        ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(3, -3); ctx.lineTo(3, 3); ctx.closePath(); ctx.fill();
+        ctx.restore();
+        ctx.shadowBlur = 0;
+      }
       for (const particle of simulation.particles) {
         const [sx, sy] = toScreen(particle.x, particle.z, map);
         const fade = Math.max(0, particle.life / particle.duration);
@@ -1116,35 +1145,43 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
       for (const enemy of simulation.enemies) {
         const [sx, sy] = toScreen(enemy.x, enemy.z, map);
         const angle = Math.atan2((simulation.playerZ - enemy.z) * map.sy, (simulation.playerX - enemy.x) * map.sx) + Math.PI / 2;
+        const isBoss = enemy.variant === 3;
         ctx.save();
         ctx.translate(sx, sy);
         ctx.rotate(angle);
+        if (isBoss) ctx.scale(1.55, 1.55);
+        if (isBoss) {
+          ctx.strokeStyle = 'rgba(232,168,67,.72)';
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.ellipse(0, 1, 19, 8, 0, 0, Math.PI * 2); ctx.stroke();
+        }
         ctx.fillStyle = 'rgba(0,0,0,.36)';
-        ctx.beginPath(); ctx.ellipse(0, 4, 12, 5, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = '#7d8989';
+        ctx.beginPath(); ctx.ellipse(0, 4, isBoss ? 14 : 12, 5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = isBoss ? '#bd9564' : '#7d8989';
         ctx.lineWidth = 5;
         ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(-7, 1); ctx.lineTo(-10, 12); ctx.moveTo(7, 1); ctx.lineTo(10, 12); ctx.stroke();
-        ctx.strokeStyle = '#9ca7a5';
+        ctx.strokeStyle = isBoss ? '#d2b17a' : '#9ca7a5';
         ctx.lineWidth = 4;
         ctx.beginPath(); ctx.moveTo(-8, -6); ctx.lineTo(-14, 2); ctx.moveTo(8, -6); ctx.lineTo(14, 1); ctx.stroke();
-        ctx.fillStyle = enemy.hitFlash > 0 ? '#d6faff' : enemy.variant === 2 ? '#525d5e' : '#3f4a4b';
-        ctx.fillRect(-9, -11, 18, 17);
-        ctx.fillStyle = '#b3bebd';
-        ctx.beginPath(); ctx.ellipse(0, -16, 7, 8, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.shadowColor = '#48dcf6';
+        ctx.fillStyle = enemy.hitFlash > 0 ? '#f3e7cc' : isBoss ? '#503633' : enemy.variant === 2 ? '#525d5e' : '#3f4a4b';
+        ctx.fillRect(isBoss ? -11 : -9, isBoss ? -12 : -11, isBoss ? 22 : 18, isBoss ? 19 : 17);
+        ctx.fillStyle = isBoss ? '#c5a477' : '#b3bebd';
+        ctx.beginPath(); ctx.ellipse(0, isBoss ? -19 : -16, isBoss ? 8 : 7, isBoss ? 9 : 8, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowColor = isBoss ? '#f1b64d' : '#48dcf6';
         ctx.shadowBlur = 8;
-        ctx.fillStyle = '#69efff';
-        ctx.fillRect(-4, -18, 2.5, 2);
-        ctx.fillRect(2, -18, 2.5, 2);
+        ctx.fillStyle = isBoss ? '#ffd16f' : '#69efff';
+        ctx.fillRect(-4, isBoss ? -21 : -18, 2.5, 2);
+        ctx.fillRect(2, isBoss ? -21 : -18, 2.5, 2);
         ctx.shadowBlur = 0;
         ctx.restore();
         if (enemy.health < enemy.maxHealth) {
           const ratio = Math.max(0, enemy.health / enemy.maxHealth);
+          const barWidth = isBoss ? 42 : 22;
           ctx.fillStyle = 'rgba(5,12,17,.78)';
-          ctx.fillRect(sx - 11, sy - 29, 22, 3);
-          ctx.fillStyle = enemy.variant === 2 ? '#eeb86b' : '#55dff2';
-          ctx.fillRect(sx - 10, sy - 28, 20 * ratio, 1);
+          ctx.fillRect(sx - barWidth / 2, sy - (isBoss ? 39 : 29), barWidth, isBoss ? 4 : 3);
+          ctx.fillStyle = isBoss || enemy.variant === 2 ? '#eeb86b' : '#55dff2';
+          ctx.fillRect(sx - barWidth / 2 + 1, sy - (isBoss ? 38 : 28), (barWidth - 2) * ratio, isBoss ? 2 : 1);
         }
       }
       const [playerX, playerY] = toScreen(simulation.playerX, simulation.playerZ, map);

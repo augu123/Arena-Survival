@@ -76,6 +76,11 @@ button { font: inherit; }
 .wave-value strong { color: hsl(var(--foreground)); font: 700 2.35rem/.8 var(--app-font-display); letter-spacing: .04em; }
 .enemy-count { display: flex; justify-content: space-between; align-items: center; margin-top: .48rem; }
 .enemy-count strong { color: hsl(var(--primary)); font: 700 1rem var(--app-font-display); }
+.mini-boss-health { margin-top: .55rem; border-top: 1px solid rgba(232,168,67,.32); padding-top: .42rem; }
+.mini-boss-health > div:first-child { display: flex; justify-content: space-between; color: #efc578; font-size: .48rem; letter-spacing: .14em; }
+.mini-boss-health strong { color: #f4e2bb; font: 700 .68rem var(--app-font-display); }
+.mini-boss-meter { height: 4px; margin-top: .3rem; overflow: hidden; background: rgba(184,215,230,.17); }
+.mini-boss-meter i { display: block; height: 100%; background: linear-gradient(90deg, #bd6e34, #f0c160); box-shadow: 0 0 8px rgba(232,168,67,.75); transition: width .1s linear; }
 .pause-button { border: 1px solid rgba(184,215,230,.28); background: rgba(10,18,27,.76); color: hsl(var(--foreground)); padding: .62rem .72rem; cursor: pointer; font-size: .56rem; letter-spacing: .12em; text-transform: uppercase; height: 35px; }
 .pause-button:hover, .action-button:hover { border-color: hsl(var(--primary)); color: hsl(var(--primary)); }
 .pause-glyph { color: hsl(var(--primary)); margin-right: .35rem; letter-spacing: -.18em; }

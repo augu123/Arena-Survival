@@ -17,6 +17,8 @@ export type HudStats = {
   grenades: number;
   score: number;
   wave: number;
+  bossHealth: number;
+  bossMaxHealth: number;
   survival: number;
   enemies: number;
   radar: Array<[number, number]>;
@@ -80,6 +82,16 @@ export type GrenadeProjectile = {
   spin: number;
 };
 
+export type DartProjectile = {
+  id: number;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vz: number;
+  life: number;
+};
+
 export type Explosion = {
   id: number;
   x: number;
@@ -126,6 +138,8 @@ export type Engine = {
   ammo: number;
   reserveAmmo: number;
   wave: number;
+  waveElapsed: number;
+  bossWavePending: boolean;
   survival: number;
   spawnTimer: number;
   pickupTimer: number;
@@ -136,6 +150,7 @@ export type Engine = {
   enemies: Enemy[];
   bullets: Bullet[];
   grenades: GrenadeProjectile[];
+  darts: DartProjectile[];
   explosions: Explosion[];
   pickups: SupplyPickup[];
   particles: Particle[];
@@ -145,6 +160,7 @@ export type StepEvents = {
   enemiesChanged: boolean;
   bulletsChanged: boolean;
   grenadesChanged: boolean;
+  dartsChanged: boolean;
   explosionsChanged: boolean;
   pickupsChanged: boolean;
 };
@@ -184,6 +200,8 @@ export const freshEngine = (): Engine => ({
   ammo: MAGAZINE_SIZE,
   reserveAmmo: 120,
   wave: 1,
+  waveElapsed: 0,
+  bossWavePending: false,
   survival: 0,
   spawnTimer: .65,
   pickupTimer: 9,
@@ -194,6 +212,7 @@ export const freshEngine = (): Engine => ({
   enemies: [],
   bullets: [],
   grenades: [],
+  darts: [],
   explosions: [],
   pickups: [],
   particles: [],
@@ -207,6 +226,8 @@ export const toHud = (game: Engine): HudStats => ({
   grenades: game.grenadeCount,
   score: game.score,
   wave: game.wave,
+  bossHealth: game.enemies.find((enemy) => enemy.variant === 3)?.health ?? 0,
+  bossMaxHealth: game.enemies.find((enemy) => enemy.variant === 3)?.maxHealth ?? 0,
   survival: game.survival,
   enemies: game.enemies.length,
   radar: game.enemies.slice(0, 28).map((enemy) => [
@@ -290,7 +311,7 @@ function spawnParticles(
 }
 
 function addEnemy(game: Engine, x: number, z: number, variant: number, events: StepEvents) {
-  const health = variant === 2 ? 4 : 2;
+  const health = variant === 3 ? 64 : variant === 2 ? 4 : 2;
   game.enemies.push({
     id: game.nextId++,
     x,
@@ -299,7 +320,7 @@ function addEnemy(game: Engine, x: number, z: number, variant: number, events: S
     vz: 0,
     facingX: game.playerX - x,
     facingZ: game.playerZ - z,
-    speed: variant === 1 ? 1.72 + game.wave * .08 : variant === 2 ? .96 + game.wave * .05 : 1.28 + game.wave * .07,
+    speed: variant === 3 ? 1.15 : variant === 1 ? 1.72 + game.wave * .08 : variant === 2 ? .96 + game.wave * .05 : 1.28 + game.wave * .07,
     variant,
     health,
     maxHealth: health,
@@ -311,6 +332,15 @@ function addEnemy(game: Engine, x: number, z: number, variant: number, events: S
     hitFlash: 0,
   });
   events.enemiesChanged = true;
+}
+
+function spawnMiniBoss(game: Engine, events: StepEvents) {
+  const angle = Math.random() * Math.PI * 2;
+  const distance = ARENA_LIMIT * .82;
+  addEnemy(game, Math.cos(angle) * distance, Math.sin(angle) * distance, 3, events);
+  game.wave = 4;
+  game.waveElapsed = 0;
+  game.bossWavePending = false;
 }
 
 function damageEnemy(
@@ -332,10 +362,19 @@ function damageEnemy(
   spawnParticles(game, enemy.x, 1.05, enemy.z, 6, ['#8ef1ff', '#47cce8', '#c6cdca'], 1.8, .055);
   if (enemy.health > 0) return;
 
-  game.score += 25 + game.wave * 5;
+  const wasMiniBoss = enemy.variant === 3;
+  game.score += wasMiniBoss ? 400 : 25 + game.wave * 5;
   game.kills += 1;
   spawnParticles(game, enemy.x, .9, enemy.z, 20, ['#aeb9b8', '#586668', '#57d7ed', '#d9e4e2'], 3.2, .11);
   game.enemies.splice(enemyIndex, 1);
+  if (wasMiniBoss) {
+    game.wave = 5;
+    game.waveElapsed = 0;
+    game.bossWavePending = false;
+    game.spawnTimer = 1.25;
+    game.darts = [];
+    events.dartsChanged = true;
+  }
   events.enemiesChanged = true;
 }
 
@@ -406,7 +445,7 @@ function detonateGrenade(game: Engine, grenade: GrenadeProjectile, events: StepE
     if (distance > radius) continue;
     const force = (1 - distance / radius) * 7;
     const direction = distance > .001 ? 1 / distance : 0;
-    damageEnemy(game, index, enemy.variant === 2 ? 3 : 2, dx * direction * force, dz * direction * force, events);
+    damageEnemy(game, index, enemy.variant === 3 ? 24 : enemy.variant === 2 ? 3 : 2, dx * direction * force, dz * direction * force, events);
   }
 }
 
@@ -474,11 +513,38 @@ function stepBullets(game: Engine, dt: number, events: StepEvents) {
   }
 }
 
+function stepDarts(game: Engine, dt: number, events: StepEvents) {
+  for (let index = game.darts.length - 1; index >= 0; index -= 1) {
+    const dart = game.darts[index];
+    const oldX = dart.x;
+    const oldZ = dart.z;
+    dart.x += dart.vx * dt;
+    dart.z += dart.vz * dt;
+    dart.life -= dt;
+    const hitWall = hitsObstacle(dart.x, dart.z, .035);
+    const hitPlayer = pointSegmentDistance(game.playerX, game.playerZ, oldX, oldZ, dart.x, dart.z) < .48;
+    if (hitPlayer && !hitWall) {
+      const damage = 13;
+      const absorbed = Math.min(game.shield, damage);
+      game.shield -= absorbed;
+      game.health -= damage - absorbed;
+      game.shieldDelay = 3.4;
+      game.damageFlash = .72;
+      game.cameraShake = Math.max(game.cameraShake, .16);
+    }
+    if (dart.life <= 0 || hitWall || hitPlayer || Math.hypot(dart.x, dart.z) > ARENA_LIMIT + .8) {
+      game.darts.splice(index, 1);
+      events.dartsChanged = true;
+    }
+  }
+}
+
 export function stepGame(game: Engine, input: InputState, rawDelta: number): StepEvents {
   const events: StepEvents = {
     enemiesChanged: false,
     bulletsChanged: false,
     grenadesChanged: false,
+    dartsChanged: false,
     explosionsChanged: false,
     pickupsChanged: false,
   };
@@ -487,14 +553,21 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
   const dt = clamp(rawDelta, 0, .05);
   if (dt === 0) return events;
   game.survival += dt;
-  game.wave = Math.floor(game.survival / 14) + 1;
+  if (game.wave !== 4 && !game.bossWavePending) {
+    game.waveElapsed += dt;
+    if (game.waveElapsed >= 14) {
+      game.waveElapsed -= 14;
+      if (game.wave === 3) game.bossWavePending = true;
+      else game.wave += 1;
+    }
+  }
   game.playerPhase += dt;
   game.fireTimer = Math.max(0, game.fireTimer - dt);
   game.firePulse = Math.max(0, game.firePulse - dt);
   game.damageFlash = Math.max(0, game.damageFlash - dt * 1.8);
   game.cameraShake = Math.max(0, game.cameraShake - dt * 1.9);
   game.grenadeCooldown = Math.max(0, game.grenadeCooldown - dt);
-  game.spawnTimer -= dt;
+  if (game.wave !== 4 && !game.bossWavePending) game.spawnTimer -= dt;
   game.pickupTimer -= dt;
   game.grenadePickupTimer -= dt;
 
@@ -520,7 +593,9 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
   game.playerZ = movedPlayer.z;
   game.playerSpeed = Math.hypot(game.playerVX, game.playerVZ) / 7.2;
 
-  if (game.spawnTimer <= 0 && game.enemies.length < 20) {
+  if (game.bossWavePending && game.enemies.length === 0) {
+    spawnMiniBoss(game, events);
+  } else if (game.wave !== 4 && !game.bossWavePending && game.spawnTimer <= 0 && game.enemies.length < 20) {
     const angle = Math.random() * Math.PI * 2;
     const distance = ARENA_LIMIT + .35;
     const variant = Math.floor(Math.random() * 3);
@@ -586,6 +661,7 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
 
   stepGrenades(game, dt, events);
   stepBullets(game, dt, events);
+  stepDarts(game, dt, events);
 
   for (let index = game.enemies.length - 1; index >= 0; index -= 1) {
     const enemy = game.enemies[index];
@@ -602,6 +678,46 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
       enemy.vx *= Math.pow(.035, dt);
       enemy.vz *= Math.pow(.035, dt);
       enemy.moveBlend = 0;
+      continue;
+    }
+
+    if (enemy.variant === 3) {
+      const dx = game.playerX - enemy.x;
+      const dz = game.playerZ - enemy.z;
+      const distance = Math.hypot(dx, dz) || 1;
+      const dirX = dx / distance;
+      const dirZ = dz / distance;
+      enemy.facingX = dirX;
+      enemy.facingZ = dirZ;
+
+      const orbit = Math.sin(enemy.phase * .55) >= 0 ? 1 : -1;
+      let moveX = -dirZ * orbit * .56;
+      let moveZ = dirX * orbit * .56;
+      if (distance > 5.3) { moveX += dirX; moveZ += dirZ; }
+      if (distance < 3.5) { moveX -= dirX * .8; moveZ -= dirZ * .8; }
+      const moveLength = Math.hypot(moveX, moveZ) || 1;
+      const moved = moveActor(enemy.x, enemy.z, moveX / moveLength * enemy.speed * dt, moveZ / moveLength * enemy.speed * dt, .42);
+      enemy.x = moved.x;
+      enemy.z = moved.z;
+
+      if (enemy.attackCooldown <= 0 && game.darts.length < 8) {
+        const aimX = game.playerX + game.playerVX * .24;
+        const aimZ = game.playerZ + game.playerVZ * .24;
+        const aimDistance = Math.hypot(aimX - enemy.x, aimZ - enemy.z) || 1;
+        const speed = 8.5;
+        game.darts.push({
+          id: game.nextId++,
+          x: enemy.x + dirX * .48,
+          y: 1.3,
+          z: enemy.z + dirZ * .48,
+          vx: (aimX - enemy.x) / aimDistance * speed,
+          vz: (aimZ - enemy.z) / aimDistance * speed,
+          life: 1.65,
+        });
+        enemy.attackCooldown = 1.65;
+        enemy.attackPulse = .35;
+        events.dartsChanged = true;
+      }
       continue;
     }
 

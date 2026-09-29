@@ -11,6 +11,7 @@ import {
   type Enemy,
   type Explosion,
   type GrenadeProjectile,
+  type DartProjectile,
   type Particle,
   bulletRenderPosition,
 } from './game-simulation';
@@ -52,6 +53,7 @@ const MAT = {
     roughness: .28,
   }),
   cyan: new THREE.MeshBasicMaterial({ color: '#73efff', toneMapped: false }),
+  dart: new THREE.MeshStandardMaterial({ color: '#e0a742', emissive: '#9c4e17', emissiveIntensity: .55, metalness: .42, roughness: .34 }),
   zombieSkin: new THREE.MeshPhysicalMaterial({ color: '#b7c1bf', roughness: .78, clearcoat: .22, clearcoatRoughness: .55, sheen: .3, sheenColor: '#8fdcef' }),
   zombieSkinLight: new THREE.MeshPhysicalMaterial({ color: '#d0d7d3', roughness: .72, clearcoat: .28, clearcoatRoughness: .5, sheen: .32, sheenColor: '#9fe4f4' }),
   zombieShadow: new THREE.MeshStandardMaterial({ color: '#707e7e', roughness: .95 }),
@@ -579,6 +581,25 @@ export function BulletMesh({ bullet }: { bullet: Bullet }) {
     <group ref={ref} position={[initialPosition.x, initialPosition.y, initialPosition.z]} dispose={null}>
       <Part geometry={GEO.cylinder} material={MAT.cyan} scale={[.026, .34, .026]} />
       <Part geometry={GEO.sphere} material={MAT.cyan} position={[0, .17, 0]} scale={[.044, .044, .044]} />
+    </group>
+  );
+}
+
+export function DartMesh({ dart }: { dart: DartProjectile }) {
+  const ref = useRef<THREE.Group>(null);
+  const direction = useMemo(() => new THREE.Vector3(), []);
+  const up = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  useFrame(() => {
+    if (!ref.current) return;
+    ref.current.position.set(dart.x, dart.y, dart.z);
+    direction.set(dart.vx, 0, dart.vz).normalize();
+    ref.current.quaternion.setFromUnitVectors(up, direction);
+  });
+  return (
+    <group ref={ref} dispose={null}>
+      <Part geometry={GEO.cylinder} material={MAT.steel} scale={[.018, .3, .018]} />
+      <Part geometry={GEO.cone} material={MAT.dart} position={[0, .19, 0]} scale={[.052, .12, .052]} />
+      <Part geometry={GEO.cone} material={MAT.dart} position={[0, -.14, 0]} scale={[.035, .08, .035]} rotation={[Math.PI, 0, 0]} />
     </group>
   );
 }
