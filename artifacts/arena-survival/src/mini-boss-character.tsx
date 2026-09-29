@@ -28,9 +28,15 @@ export function MiniBossCharacter({ enemy }: { enemy: Enemy }) {
       rootRef.current.rotation.y = Math.atan2(enemy.facingX, enemy.facingZ);
     }
     if (bodyRef.current) {
-      bodyRef.current.position.y = Math.abs(Math.sin(enemy.phase * 1.35)) * .035;
-      bodyRef.current.rotation.z = Math.sin(enemy.phase * .7) * .018;
-      bodyRef.current.rotation.x = enemy.attackPulse > 0 ? -.09 : 0;
+      const movement = THREE.MathUtils.clamp(enemy.moveBlend, 0, 1);
+      const stride = Math.sin(enemy.phase * 2.5);
+      bodyRef.current.position.y = Math.abs(stride) * .075 * movement
+        + Math.abs(Math.sin(enemy.phase * 1.35)) * .025;
+      bodyRef.current.rotation.z = stride * (.025 + movement * .065);
+      bodyRef.current.rotation.x = enemy.attackPulse > 0
+        ? -.16
+        : Math.sin(enemy.phase * 2.5 + Math.PI / 2) * .035 * movement;
+      bodyRef.current.rotation.y = Math.sin(enemy.phase * 1.2) * .035 * movement;
     }
     const ratio = THREE.MathUtils.clamp(enemy.health / enemy.maxHealth, 0, 1);
     if (healthFillRef.current) {

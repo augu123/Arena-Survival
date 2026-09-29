@@ -177,7 +177,8 @@ export type StepEvents = {
   pickupsChanged: boolean;
 };
 
-export const ARENA_LIMIT = 8.15;
+export const ARENA_BOUNDARY_SCALE = 1.25;
+export const ARENA_LIMIT = 8.15 * ARENA_BOUNDARY_SCALE;
 export const MAGAZINE_SIZE = 60;
 export const MAX_PARTICLES = 320;
 export const OBSTACLES: Array<{ x: number; z: number; halfX: number; halfZ: number }> = [
@@ -318,6 +319,13 @@ export function isNearVehicle(x: number, z: number, vehicle: VehiclePose) {
   return Math.hypot(outsideX, outsideZ) <= VEHICLE_INTERACTION_REACH;
 }
 
+function hitsStaticObstacle(x: number, z: number, radius: number) {
+  return OBSTACLES.some((obstacle) =>
+    Math.abs(x - obstacle.x) < obstacle.halfX + radius
+    && Math.abs(z - obstacle.z) < obstacle.halfZ + radius,
+  );
+}
+
 export function hitsObstacle(
   x: number,
   z: number,
@@ -325,10 +333,7 @@ export function hitsObstacle(
   vehicle: VehiclePose = STARTING_VEHICLE_POSITION,
 ) {
   const car = vehicleBounds(vehicle);
-  return OBSTACLES.some((obstacle) =>
-    Math.abs(x - obstacle.x) < obstacle.halfX + radius
-    && Math.abs(z - obstacle.z) < obstacle.halfZ + radius,
-  ) || (
+  return hitsStaticObstacle(x, z, radius) || (
     Math.abs(x - car.x) < car.halfX + radius
     && Math.abs(z - car.z) < car.halfZ + radius
   );
@@ -383,31 +388,87 @@ export function moveActor(
   dz: number,
   radius = .28,
   vehicle: VehiclePose = STARTING_VEHICLE_POSITION,
+  ignoreVehicleCollision = false,
 ) {
+  const blocked = (targetX: number, targetZ: number) => ignoreVehicleCollision
+    ? hitsStaticObstacle(targetX, targetZ, radius)
+    : hitsObstacle(targetX, targetZ, radius, vehicle);
   const target = clampToArena(x + dx, z + dz);
-  if (!hitsObstacle(target.x, target.z, radius, vehicle)) return target;
+  if (!blocked(target.x, target.z)) return target;
   const slideX = clampToArena(x + dx, z);
   const slideZ = clampToArena(x, z + dz);
-  const allowX = !hitsObstacle(slideX.x, slideX.z, radius, vehicle);
-  const allowZ = !hitsObstacle(slideZ.x, slideZ.z, radius, vehicle);
+  const allowX = !blocked(slideX.x, slideX.z);
+  const allowZ = !blocked(slideZ.x, slideZ.z);
   if (allowX && allowZ) return Math.abs(dx) >= Math.abs(dz) ? slideX : slideZ;
   if (allowX) return slideX;
   if (allowZ) return slideZ;
   return { x, z };
 }
 
-function canPlaceVehicle(game: Engine, x: number, z: number, heading: number) {
+function canPlaceVehicle(x: number, z: number, heading: number) {
   const bounds = vehicleBounds({ x, z, heading });
   const arenaClearance = Math.hypot(ARENA_CAR.halfX, ARENA_CAR.halfZ);
   if (Math.hypot(x, z) > ARENA_LIMIT - arenaClearance) return false;
-  if (OBSTACLES.some((obstacle) =>
+  return !OBSTACLES.some((obstacle) =>
     Math.abs(x - obstacle.x) < bounds.halfX + obstacle.halfX
     && Math.abs(z - obstacle.z) < bounds.halfZ + obstacle.halfZ,
-  )) return false;
-  return !game.enemies.some((enemy) =>
-    Math.abs(x - enemy.x) < bounds.halfX + .24
-    && Math.abs(z - enemy.z) < bounds.halfZ + .24,
   );
+}
+
+function pushEnemiesWithVehicle(game: Engine, previousX: number, previousZ: number) {
+  const vehicle = game.vehicle;
+  const cosine = Math.cos(vehicle.heading);
+  const sine = Math.sin(vehicle.heading);
+  const movementX = vehicle.x - previousX;
+  const movementZ = vehicle.z - previousZ;
+  const localMovementX = cosine * movementX - sine * movementZ;
+  const localMovementZ = sine * movementX + cosine * movementZ;
+  const moving = Math.hypot(localMovementX, localMovementZ) > .0001;
+
+  for (const enemy of game.enemies) {
+    const radius = enemy.variant === 3 ? .42 : .23;
+    const local = vehicleLocalOffset(enemy.x, enemy.z, vehicle);
+    const overlapX = ARENA_CAR.halfX + radius - Math.abs(local.x);
+    const overlapZ = ARENA_CAR.halfZ + radius - Math.abs(local.z);
+    if (overlapX <= 0 || overlapZ <= 0) continue;
+
+    const primaryAxis = moving
+      ? Math.abs(localMovementX) > Math.abs(localMovementZ) ? 'x' : 'z'
+      : overlapX < overlapZ ? 'x' : 'z';
+    const axes = primaryAxis === 'x' ? ['x', 'z'] as const : ['z', 'x'] as const;
+    let pushed = false;
+
+    for (const axis of axes) {
+      const localPosition = axis === 'x' ? local.x : local.z;
+      const localMotion = axis === 'x' ? localMovementX : localMovementZ;
+      const halfExtent = axis === 'x' ? ARENA_CAR.halfX : ARENA_CAR.halfZ;
+      const sign = Math.sign(localMotion) || Math.sign(localPosition) || 1;
+      const targetLocalPosition = sign * (halfExtent + radius + .045);
+      const localDelta = targetLocalPosition - localPosition;
+      const deltaX = axis === 'x' ? cosine * localDelta : sine * localDelta;
+      const deltaZ = axis === 'x' ? -sine * localDelta : cosine * localDelta;
+      const candidate = moveActor(enemy.x, enemy.z, deltaX, deltaZ, radius, vehicle, true);
+      const candidateLocal = vehicleLocalOffset(candidate.x, candidate.z, vehicle);
+      const clearsVehicle = Math.abs(candidateLocal.x) >= ARENA_CAR.halfX + radius
+        || Math.abs(candidateLocal.z) >= ARENA_CAR.halfZ + radius;
+      if (!clearsVehicle) continue;
+
+      const pushX = candidate.x - enemy.x;
+      const pushZ = candidate.z - enemy.z;
+      const pushLength = Math.hypot(pushX, pushZ);
+      if (pushLength < .001) continue;
+      const weight = enemy.variant === 3 ? .55 : 1;
+      const impulse = (2.4 + Math.min(2.6, Math.abs(vehicle.speed) * .55)) * weight;
+      enemy.x = candidate.x;
+      enemy.z = candidate.z;
+      enemy.vx = clamp(enemy.vx + pushX / pushLength * impulse, -8, 8);
+      enemy.vz = clamp(enemy.vz + pushZ / pushLength * impulse, -8, 8);
+      enemy.stagger = Math.max(enemy.stagger, enemy.variant === 3 ? .12 : .18);
+      enemy.moveBlend = 0;
+      pushed = true;
+      break;
+    }
+  }
 }
 
 function getVehicleExitPosition(game: Engine) {
@@ -454,6 +515,8 @@ function interactWithVehicle(game: Engine, input: InputState) {
 
 function driveVehicle(game: Engine, input: InputState, dt: number) {
   const vehicle = game.vehicle;
+  const previousX = vehicle.x;
+  const previousZ = vehicle.z;
   const throttle = clamp(
     (input.keys.KeyW || input.keys.ArrowUp ? 1 : 0)
       - (input.keys.KeyS || input.keys.ArrowDown ? 1 : 0)
@@ -479,12 +542,12 @@ function driveVehicle(game: Engine, input: InputState, dt: number) {
   const nextX = vehicle.x - Math.sin(nextHeading) * vehicle.speed * dt;
   const nextZ = vehicle.z - Math.cos(nextHeading) * vehicle.speed * dt;
 
-  if (canPlaceVehicle(game, nextX, nextZ, nextHeading)) {
+  if (canPlaceVehicle(nextX, nextZ, nextHeading)) {
     vehicle.x = nextX;
     vehicle.z = nextZ;
     vehicle.heading = nextHeading;
   } else {
-    if (canPlaceVehicle(game, vehicle.x, vehicle.z, nextHeading)) vehicle.heading = nextHeading;
+    if (canPlaceVehicle(vehicle.x, vehicle.z, nextHeading)) vehicle.heading = nextHeading;
     vehicle.speed = 0;
   }
 
@@ -493,6 +556,7 @@ function driveVehicle(game: Engine, input: InputState, dt: number) {
   game.playerVX = -Math.sin(vehicle.heading) * vehicle.speed;
   game.playerVZ = -Math.cos(vehicle.heading) * vehicle.speed;
   game.playerSpeed = Math.min(1, Math.abs(vehicle.speed) / 5.4);
+  pushEnemiesWithVehicle(game, previousX, previousZ);
 }
 
 function pointSegmentDistance(px: number, pz: number, ax: number, az: number, bx: number, bz: number) {
@@ -928,8 +992,12 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
       if (distance < 3.5) { moveX -= dirX * .8; moveZ -= dirZ * .8; }
       const moveLength = Math.hypot(moveX, moveZ) || 1;
       const moved = moveActor(enemy.x, enemy.z, moveX / moveLength * enemy.speed * dt, moveZ / moveLength * enemy.speed * dt, .42, game.vehicle);
+      const actualMovement = Math.hypot(moved.x - enemy.x, moved.z - enemy.z);
       enemy.x = moved.x;
       enemy.z = moved.z;
+      enemy.moveBlend = actualMovement > .0001
+        ? Math.min(1, enemy.moveBlend + dt * 4)
+        : Math.max(0, enemy.moveBlend - dt * 5);
 
       if (enemy.attackCooldown <= 0 && game.darts.length < 8) {
         const aimX = game.playerX + game.playerVX * .24;

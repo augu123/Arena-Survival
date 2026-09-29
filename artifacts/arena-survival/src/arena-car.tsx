@@ -5,6 +5,71 @@ import * as THREE from 'three';
 import carModelUrl from '@assets/luxury+car+3d+model_1790685156102.glb?url';
 import { ARENA_CAR, type Engine } from './game-simulation';
 
+const CAR_MODEL_YAW_OFFSET = Math.PI;
+const WHEEL_RADIUS = .067;
+const WHEEL_POSITIONS: Array<[number, number, number]> = [
+  [-.2, .06, -.33],
+  [.2, .06, -.33],
+  [-.2, .06, .33],
+  [.2, .06, .33],
+];
+
+function AnimatedVehicleWheels({ engineRef }: { engineRef: MutableRefObject<Engine> }) {
+  const wheelRefs = useRef<Array<THREE.Group | null>>([]);
+  const previousPosition = useRef<{ x: number; z: number } | null>(null);
+
+  useFrame((_, delta) => {
+    const vehicle = engineRef.current.vehicle;
+    if (previousPosition.current) {
+      const distance = Math.hypot(
+        vehicle.x - previousPosition.current.x,
+        vehicle.z - previousPosition.current.z,
+      );
+      const signedDistance = distance <= Math.max(.3, delta * 6)
+        ? distance * Math.sign(vehicle.speed)
+        : 0;
+      const rotation = signedDistance / (WHEEL_RADIUS * ARENA_CAR.scale);
+      wheelRefs.current.forEach((wheel) => {
+        if (wheel) wheel.rotation.x += rotation;
+      });
+    }
+    previousPosition.current = { x: vehicle.x, z: vehicle.z };
+  });
+
+  return (
+    <>
+      {WHEEL_POSITIONS.map(([x, y, z], index) => (
+        <group
+          key={`${x}-${z}`}
+          ref={(wheel) => { wheelRefs.current[index] = wheel; }}
+          position={[x, y, z]}
+        >
+          <mesh rotation={[0, 0, Math.PI / 2]} castShadow>
+            <cylinderGeometry args={[WHEEL_RADIUS, WHEEL_RADIUS, .055, 18]} />
+            <meshStandardMaterial color="#090d10" roughness={.94} />
+          </mesh>
+          {[-1, 1].map((side) => (
+            <group key={side} position={[side * .029, 0, 0]}>
+              <mesh rotation={[0, 0, Math.PI / 2]} castShadow>
+                <cylinderGeometry args={[.037, .037, .009, 14]} />
+                <meshStandardMaterial color="#66777d" metalness={.72} roughness={.36} />
+              </mesh>
+              <group>
+                {[0, 1, 2, 3, 4].map((spoke) => (
+                  <mesh key={spoke} position={[0, .021, 0]} rotation={[spoke * Math.PI * 2 / 5, 0, 0]}>
+                    <boxGeometry args={[.008, .035, .009]} />
+                    <meshStandardMaterial color="#9baeb3" metalness={.68} roughness={.42} />
+                  </mesh>
+                ))}
+              </group>
+            </group>
+          ))}
+        </group>
+      ))}
+    </>
+  );
+}
+
 function MovingVehicleRoot({
   engineRef,
   children,
@@ -26,7 +91,11 @@ function MovingVehicleRoot({
 
   return (
     <group ref={rootRef} position={[ARENA_CAR.x, ARENA_CAR.y, ARENA_CAR.z]} rotation={[0, ARENA_CAR.rotationY, 0]} scale={ARENA_CAR.scale}>
-      {children}
+      {/* The source GLB points opposite the simulation's forward (-Z) axis. */}
+      <group rotation={[0, CAR_MODEL_YAW_OFFSET, 0]}>
+        {children}
+        <AnimatedVehicleWheels engineRef={engineRef} />
+      </group>
       <mesh ref={shieldRef} position={[0, .008, 0]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={2}>
         <ringGeometry args={[.57, .62, 48]} />
         <meshBasicMaterial color="#54e6ff" transparent opacity={.9} depthWrite={false} toneMapped={false} side={THREE.DoubleSide} />
@@ -70,12 +139,6 @@ export function ArenaCarPlaceholder({ engineRef }: { engineRef: MutableRefObject
         <boxGeometry args={[.31, .1, .43]} />
         <meshStandardMaterial color="#54717a" metalness={.34} roughness={.3} />
       </mesh>
-      {[-1, 1].flatMap((side) => [-1, 1].map((end) => (
-        <mesh key={`${side}-${end}`} position={[side * .215, .075, end * .28]}>
-          <boxGeometry args={[.085, .13, .18]} />
-          <meshStandardMaterial color="#101619" roughness={.88} />
-        </mesh>
-      )))}
     </MovingVehicleRoot>
   );
 }

@@ -8,6 +8,7 @@ import { getConcreteTextures, getWoodTextures, tiledTexture } from './arena-text
 import { OPTIONAL_REAL_CONCRETE_TEXTURE_URLS, REAL_WOOD_TEXTURE_URLS, upgradeMaterialTextures } from './real-textures';
 import {
   ARENA_LIMIT,
+  ARENA_BOUNDARY_SCALE,
   ARENA_CAR,
   OBSTACLES,
   hitsObstacle as simulationHitsObstacle,
@@ -139,33 +140,34 @@ function ArenaGeometry({
   showCar: boolean;
   engineRef: MutableRefObject<SimulationEngine>;
 }) {
+  const arenaScale = ARENA_BOUNDARY_SCALE;
   const floorMaterial = useMemo(() => {
     const concrete = getConcreteTextures();
     return new THREE.MeshStandardMaterial({
-      map: tiledTexture(concrete.map, 7, 7),
-      bumpMap: tiledTexture(concrete.bumpMap, 7, 7),
+      map: tiledTexture(concrete.map, 7 * arenaScale, 7 * arenaScale),
+      bumpMap: tiledTexture(concrete.bumpMap, 7 * arenaScale, 7 * arenaScale),
       bumpScale: .045,
-      roughnessMap: tiledTexture(concrete.roughnessMap, 7, 7),
+      roughnessMap: tiledTexture(concrete.roughnessMap, 7 * arenaScale, 7 * arenaScale),
       roughness: 1,
       metalness: .06,
       color: '#aab5ba',
       envMapIntensity: .4,
     });
-  }, []);
+  }, [arenaScale]);
   const wallMaterial = useMemo(() => {
     const concrete = getConcreteTextures();
     return new THREE.MeshStandardMaterial({
-      map: tiledTexture(concrete.map, 18, 1.1),
-      bumpMap: tiledTexture(concrete.bumpMap, 18, 1.1),
+      map: tiledTexture(concrete.map, 18 * arenaScale, 1.1),
+      bumpMap: tiledTexture(concrete.bumpMap, 18 * arenaScale, 1.1),
       bumpScale: .05,
-      roughnessMap: tiledTexture(concrete.roughnessMap, 18, 1.1),
+      roughnessMap: tiledTexture(concrete.roughnessMap, 18 * arenaScale, 1.1),
       roughness: 1,
       metalness: .1,
       color: '#8894a0',
       side: THREE.DoubleSide,
       envMapIntensity: .35,
     });
-  }, []);
+  }, [arenaScale]);
   const segmentMaterial = useMemo(() => {
     const concrete = getConcreteTextures();
     return new THREE.MeshStandardMaterial({
@@ -229,28 +231,28 @@ function ArenaGeometry({
 
   const wallSegments = Array.from({ length: 48 }, (_, index) => {
     const angle = (index / 48) * Math.PI * 2;
-    return { angle, x: Math.cos(angle) * 9.05, z: Math.sin(angle) * 9.05 };
+    return { angle, x: Math.cos(angle) * 9.05 * arenaScale, z: Math.sin(angle) * 9.05 * arenaScale };
   });
   return (
     <>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -.02, 0]} receiveShadow>
-        <circleGeometry args={[9.3, 96]} />
+        <circleGeometry args={[9.3 * arenaScale, 96]} />
         <primitive object={floorMaterial} attach="material" />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .004, 0]}>
-        <ringGeometry args={[8.62, 8.72, 96]} />
+        <ringGeometry args={[8.62 * arenaScale, 8.72 * arenaScale, 96]} />
         <meshBasicMaterial color="#3bc9ed" transparent opacity={.92} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .005, 0]}>
-        <ringGeometry args={[7.35, 7.42, 96]} />
+        <ringGeometry args={[7.35 * arenaScale, 7.42 * arenaScale, 96]} />
         <meshBasicMaterial color="#3bc9ed" transparent opacity={.4} />
       </mesh>
       <mesh position={[0, .46, 0]}>
-        <cylinderGeometry args={[9.28, 9.28, 1.35, 72, 1, true]} />
+        <cylinderGeometry args={[9.28 * arenaScale, 9.28 * arenaScale, 1.35, 72, 1, true]} />
         <primitive object={wallMaterial} attach="material" />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 1.12, 0]}>
-        <ringGeometry args={[9.12, 9.32, 72]} />
+        <ringGeometry args={[9.12 * arenaScale, 9.32 * arenaScale, 72]} />
         <meshStandardMaterial color="#8b9aa1" roughness={.55} metalness={.28} envMapIntensity={.6} />
       </mesh>
       {wallSegments.filter((_, index) => index % 2 === 0).map(({ angle, x, z }, index) => (
@@ -862,7 +864,7 @@ function CameraAndLights({
     const perspectiveCamera = camera as THREE.PerspectiveCamera;
     const verticalHalfFov = THREE.MathUtils.degToRad(perspectiveCamera.fov / 2);
     const tilt = Math.atan2(14, 19);
-    const radius = 9.35;
+    const radius = 9.35 * ARENA_BOUNDARY_SCALE;
     const verticalExtent = radius * Math.cos(tilt) + 1.25 * Math.sin(tilt);
     // Fit vertically; fitting the entire arena horizontally on a portrait
     // screen pushes the camera beyond the fog and hides the player.
