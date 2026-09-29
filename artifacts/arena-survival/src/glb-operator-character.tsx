@@ -1,9 +1,10 @@
-import { type MutableRefObject, useMemo, useRef } from 'react';
+import { type MutableRefObject, useEffect, useMemo, useRef } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as THREE from 'three';
 import operatorModelUrl from '@assets/base_basic_pbr_1790662051664.glb?url';
 import { CarbineModel, type OperatorMotion, type OperatorRig } from './game-models';
+import { skinOperator } from './operator-skin';
 
 export function GLBOperatorCharacter({
   rootRef,
@@ -16,26 +17,48 @@ export function GLBOperatorCharacter({
 }) {
   const gltf = useLoader(GLTFLoader, operatorModelUrl);
   const bodyRef = useRef<THREE.Group>(null);
-  const model = useMemo(() => {
-    const clone = gltf.scene.clone(true);
-    clone.traverse((part) => {
-      if (part instanceof THREE.Mesh) {
-        part.castShadow = true;
-        part.receiveShadow = true;
-      }
-    });
-    return clone;
+  const skinned = useMemo(() => {
+    const source = gltf.scene.getObjectByName('model');
+    if (!(source instanceof THREE.Mesh)) throw new Error('Operator GLB is missing its model mesh');
+    return skinOperator(source);
   }, [gltf.scene]);
+  useEffect(() => () => {
+    skinned.mesh.geometry.dispose();
+    skinned.mesh.skeleton.dispose();
+  }, [skinned]);
+  const strideRef = useRef(0);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const motion = motionRef.current;
     rigRef.current.torso = bodyRef.current;
+    const blend = 1 - Math.exp(-Math.min(delta, .05) * 12);
+    strideRef.current = THREE.MathUtils.lerp(strideRef.current, THREE.MathUtils.clamp(motion.speed, 0, 1), blend);
+    const stride = strideRef.current;
+    const step = Math.sin(motion.time * 10.5);
+    const breathing = Math.sin(motion.time * 2.3);
+    const fire = THREE.MathUtils.clamp(motion.firePulse / .12, 0, 1);
+    const { leftArm, rightArm, leftLeg, rightLeg } = skinned.bones;
+    const forward = THREE.MathUtils.clamp(motion.forward, -1, 1);
+    const strafe = THREE.MathUtils.clamp(motion.strafe, -1, 1);
+    const gait = step * stride * (forward < -.15 ? -1 : 1);
+
+    leftLeg.upper.rotation.x = gait * .48;
+    rightLeg.upper.rotation.x = -gait * .48;
+    leftLeg.upper.rotation.z = -step * .13 * strafe;
+    rightLeg.upper.rotation.z = step * .13 * strafe;
+    leftLeg.lower.rotation.x = Math.max(0, -step) * .52 * stride;
+    rightLeg.lower.rotation.x = Math.max(0, step) * .52 * stride;
+    leftArm.upper.rotation.x = -.13 - step * .13 * stride - breathing * .018 + fire * .09;
+    rightArm.upper.rotation.x = -.18 + step * .11 * stride - breathing * .018 + fire * .16;
+    leftArm.lower.rotation.x = -.17 - fire * .08;
+    rightArm.lower.rotation.x = -.22 - fire * .12;
+    leftArm.upper.rotation.z = -.015 - .02 * step * stride;
+    rightArm.upper.rotation.z = .015 - .02 * step * stride;
+
     if (bodyRef.current) {
-      const stride = Math.min(1, motion.speed);
-      const step = Math.sin(motion.time * 10.5);
-      bodyRef.current.position.y = Math.abs(step) * .018 * stride;
-      bodyRef.current.rotation.z = -.018 * step * stride;
-      bodyRef.current.rotation.x = motion.damagePulse * .035 - motion.firePulse * .025;
+      bodyRef.current.position.y = Math.abs(step) * .015 * stride + breathing * .004;
+      bodyRef.current.rotation.z = -.012 * step * stride;
+      bodyRef.current.rotation.x = motion.damagePulse * .035 - fire * .02;
     }
   });
 
@@ -50,7 +73,7 @@ export function GLBOperatorCharacter({
         <meshBasicMaterial color="#48d9f5" transparent opacity={.54} side={THREE.DoubleSide} />
       </mesh>
       <group ref={bodyRef}>
-        <primitive object={model} />
+        <primitive object={skinned.mesh} />
         <group position={[.18, 1.12, .14]}>
           <CarbineModel rigRef={rigRef} motionRef={motionRef} scale={.72} />
         </group>

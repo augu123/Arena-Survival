@@ -719,7 +719,7 @@ function SimulationGameLoop({
   const [pickups, setPickups] = useState<SupplyPickup[]>([]);
   const playerRef = useRef<THREE.Group | null>(null);
   const rigRef = useRef(createOperatorRig());
-  const motionRef = useRef<OperatorMotion>({ time: 0, speed: 0, firePulse: 0, reloadBlend: 0, damagePulse: 0 });
+  const motionRef = useRef<OperatorMotion>({ time: 0, speed: 0, forward: 0, strafe: 0, firePulse: 0, reloadBlend: 0, damagePulse: 0 });
   const hudClock = useRef(0);
   const hudRef = useRef(onHud);
   const gameOverRef = useRef(onGameOver);
@@ -736,7 +736,7 @@ function SimulationGameLoop({
     setExplosions([]);
     setPickups([]);
     hudClock.current = 0;
-    motionRef.current = { time: 0, speed: 0, firePulse: 0, reloadBlend: 0, damagePulse: 0 };
+    motionRef.current = { time: 0, speed: 0, forward: 0, strafe: 0, firePulse: 0, reloadBlend: 0, damagePulse: 0 };
   }, [engineRef, resetKey]);
 
   useEffect(() => {
@@ -767,13 +767,16 @@ function SimulationGameLoop({
     if (!active || engineRef.current.ended) return;
     const game = engineRef.current;
     const events = stepGame(game, inputRef.current, rawDelta);
+    const facing = Math.atan2(inputRef.current.aimX - game.playerX, inputRef.current.aimZ - game.playerZ);
     if (playerRef.current) {
       playerRef.current.position.set(game.playerX, .02 + Math.sin(game.playerPhase * 14) * .012 * game.playerSpeed, game.playerZ);
-      playerRef.current.rotation.y = Math.atan2(inputRef.current.aimX - game.playerX, inputRef.current.aimZ - game.playerZ);
+      playerRef.current.rotation.y = facing;
     }
     motionRef.current = {
       time: game.playerPhase,
       speed: game.playerSpeed,
+      forward: (game.playerVX * Math.sin(facing) + game.playerVZ * Math.cos(facing)) / 7.2,
+      strafe: (game.playerVX * Math.cos(facing) - game.playerVZ * Math.sin(facing)) / 7.2,
       firePulse: game.firePulse,
       reloadBlend: game.reloadDuration > 0 ? 1 - game.reloadTimer / game.reloadDuration : 0,
       damagePulse: game.damageFlash,

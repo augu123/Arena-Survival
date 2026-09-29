@@ -106,6 +106,8 @@ export type OperatorRig = {
 export type OperatorMotion = {
   time: number;
   speed: number;
+  forward: number;
+  strafe: number;
   firePulse: number;
   reloadBlend: number;
   damagePulse: number;
