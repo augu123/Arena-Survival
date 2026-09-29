@@ -14,7 +14,7 @@ export type HudStats = {
   shield: number;
   ammo: number;
   reserveAmmo: number;
-  burgers: number;
+  grenades: number;
   score: number;
   wave: number;
   survival: number;
@@ -68,7 +68,7 @@ export function bulletRenderPosition(bullet: Bullet): { x: number; y: number; z:
   };
 }
 
-export type BurgerProjectile = {
+export type GrenadeProjectile = {
   id: number;
   x: number;
   y: number;
@@ -89,7 +89,7 @@ export type Explosion = {
   radius: number;
 };
 
-export type SupplyPickup = { id: number; kind: 'ammo' | 'burger'; x: number; z: number; phase: number };
+export type SupplyPickup = { id: number; kind: 'ammo' | 'grenade'; x: number; z: number; phase: number };
 export type Particle = {
   x: number;
   y: number;
@@ -113,9 +113,9 @@ export type Engine = {
   firePulse: number;
   reloadTimer: number;
   reloadDuration: number;
-  burgerCount: number;
-  burgerWasDown: boolean;
-  burgerCooldown: number;
+  grenadeCount: number;
+  grenadeWasDown: boolean;
+  grenadeCooldown: number;
   health: number;
   shield: number;
   shieldDelay: number;
@@ -129,13 +129,13 @@ export type Engine = {
   survival: number;
   spawnTimer: number;
   pickupTimer: number;
-  burgerPickupTimer: number;
+  grenadePickupTimer: number;
   fireTimer: number;
   nextId: number;
   ended: boolean;
   enemies: Enemy[];
   bullets: Bullet[];
-  burgers: BurgerProjectile[];
+  grenades: GrenadeProjectile[];
   explosions: Explosion[];
   pickups: SupplyPickup[];
   particles: Particle[];
@@ -144,7 +144,7 @@ export type Engine = {
 export type StepEvents = {
   enemiesChanged: boolean;
   bulletsChanged: boolean;
-  burgersChanged: boolean;
+  grenadesChanged: boolean;
   explosionsChanged: boolean;
   pickupsChanged: boolean;
 };
@@ -171,9 +171,9 @@ export const freshEngine = (): Engine => ({
   firePulse: 0,
   reloadTimer: 0,
   reloadDuration: 0,
-  burgerCount: 3,
-  burgerWasDown: false,
-  burgerCooldown: 0,
+  grenadeCount: 3,
+  grenadeWasDown: false,
+  grenadeCooldown: 0,
   health: 100,
   shield: 50,
   shieldDelay: 0,
@@ -187,13 +187,13 @@ export const freshEngine = (): Engine => ({
   survival: 0,
   spawnTimer: .65,
   pickupTimer: 9,
-  burgerPickupTimer: 12,
+  grenadePickupTimer: 12,
   fireTimer: 0,
   nextId: 1,
   ended: false,
   enemies: [],
   bullets: [],
-  burgers: [],
+  grenades: [],
   explosions: [],
   pickups: [],
   particles: [],
@@ -204,7 +204,7 @@ export const toHud = (game: Engine): HudStats => ({
   shield: game.shield,
   ammo: game.ammo,
   reserveAmmo: game.reserveAmmo,
-  burgers: game.burgerCount,
+  grenades: game.grenadeCount,
   score: game.score,
   wave: game.wave,
   survival: game.survival,
@@ -383,25 +383,25 @@ function steerEnemy(enemy: Enemy, playerX: number, playerZ: number, dt: number) 
   return { x: bestX, z: bestZ, distance };
 }
 
-function detonateBurger(game: Engine, burger: BurgerProjectile, events: StepEvents) {
+function detonateGrenade(game: Engine, grenade: GrenadeProjectile, events: StepEvents) {
   const radius = 3.25;
   const duration = .62;
   game.explosions.push({
     id: game.nextId++,
-    x: burger.x,
-    z: burger.z,
+    x: grenade.x,
+    z: grenade.z,
     life: duration,
     duration,
     radius,
   });
   events.explosionsChanged = true;
   game.cameraShake = Math.max(game.cameraShake, .32);
-  spawnParticles(game, burger.x, .2, burger.z, 52, ['#f0b64f', '#f8df91', '#568d42', '#70452d'], 5.2, .13);
+  spawnParticles(game, grenade.x, .2, grenade.z, 52, ['#63e4fa', '#bdf8ff', '#73858a', '#d9e1df'], 5.2, .13);
 
   for (let index = game.enemies.length - 1; index >= 0; index -= 1) {
     const enemy = game.enemies[index];
-    const dx = enemy.x - burger.x;
-    const dz = enemy.z - burger.z;
+    const dx = enemy.x - grenade.x;
+    const dz = enemy.z - grenade.z;
     const distance = Math.hypot(dx, dz);
     if (distance > radius) continue;
     const force = (1 - distance / radius) * 7;
@@ -410,34 +410,34 @@ function detonateBurger(game: Engine, burger: BurgerProjectile, events: StepEven
   }
 }
 
-function stepBurgers(game: Engine, dt: number, events: StepEvents) {
-  for (let index = game.burgers.length - 1; index >= 0; index -= 1) {
-    const burger = game.burgers[index];
-    const next = moveActor(burger.x, burger.z, burger.vx * dt, burger.vz * dt, .15);
-    const blocked = Math.hypot(next.x - burger.x, next.z - burger.z) < Math.hypot(burger.vx * dt, burger.vz * dt) * .4;
+function stepGrenades(game: Engine, dt: number, events: StepEvents) {
+  for (let index = game.grenades.length - 1; index >= 0; index -= 1) {
+    const grenade = game.grenades[index];
+    const next = moveActor(grenade.x, grenade.z, grenade.vx * dt, grenade.vz * dt, .11);
+    const blocked = Math.hypot(next.x - grenade.x, next.z - grenade.z) < Math.hypot(grenade.vx * dt, grenade.vz * dt) * .4;
     if (blocked) {
-      burger.vx *= -.46;
-      burger.vz *= -.46;
-      spawnParticles(game, burger.x, .15, burger.z, 3, ['#e6af52', '#6f9b47'], .65, .035);
+      grenade.vx *= -.46;
+      grenade.vz *= -.46;
+      spawnParticles(game, grenade.x, .15, grenade.z, 3, ['#5bd9f2', '#718087'], .65, .035);
     } else {
-      burger.x = next.x;
-      burger.z = next.z;
+      grenade.x = next.x;
+      grenade.z = next.z;
     }
-    burger.vy -= 9.8 * dt;
-    burger.y += burger.vy * dt;
-    burger.spin += dt * (8 + Math.hypot(burger.vx, burger.vz));
-    if (burger.y < .12) {
-      burger.y = .12;
-      if (Math.abs(burger.vy) > .85) burger.vy = Math.abs(burger.vy) * .43;
-      else burger.vy = 0;
-      burger.vx *= .82;
-      burger.vz *= .82;
+    grenade.vy -= 9.8 * dt;
+    grenade.y += grenade.vy * dt;
+    grenade.spin += dt * (8 + Math.hypot(grenade.vx, grenade.vz));
+    if (grenade.y < .12) {
+      grenade.y = .12;
+      if (Math.abs(grenade.vy) > .85) grenade.vy = Math.abs(grenade.vy) * .43;
+      else grenade.vy = 0;
+      grenade.vx *= .82;
+      grenade.vz *= .82;
     }
-    burger.fuse -= dt;
-    if (burger.fuse <= 0) {
-      detonateBurger(game, burger, events);
-      game.burgers.splice(index, 1);
-      events.burgersChanged = true;
+    grenade.fuse -= dt;
+    if (grenade.fuse <= 0) {
+      detonateGrenade(game, grenade, events);
+      game.grenades.splice(index, 1);
+      events.grenadesChanged = true;
     }
   }
 }
@@ -478,7 +478,7 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
   const events: StepEvents = {
     enemiesChanged: false,
     bulletsChanged: false,
-    burgersChanged: false,
+    grenadesChanged: false,
     explosionsChanged: false,
     pickupsChanged: false,
   };
@@ -493,10 +493,10 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
   game.firePulse = Math.max(0, game.firePulse - dt);
   game.damageFlash = Math.max(0, game.damageFlash - dt * 1.8);
   game.cameraShake = Math.max(0, game.cameraShake - dt * 1.9);
-  game.burgerCooldown = Math.max(0, game.burgerCooldown - dt);
+  game.grenadeCooldown = Math.max(0, game.grenadeCooldown - dt);
   game.spawnTimer -= dt;
   game.pickupTimer -= dt;
-  game.burgerPickupTimer -= dt;
+  game.grenadePickupTimer -= dt;
 
   let moveX = (input.keys.KeyD || input.keys.ArrowRight ? 1 : 0)
     - (input.keys.KeyA || input.keys.ArrowLeft ? 1 : 0) + input.touchX;
@@ -542,14 +542,14 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
     }
   }
 
-  const burgerPressed = input.keys.KeyG && !game.burgerWasDown;
-  game.burgerWasDown = input.keys.KeyG;
-  if (burgerPressed && game.burgerCount > 0 && game.burgerCooldown <= 0) {
+  const grenadePressed = input.keys.KeyG && !game.grenadeWasDown;
+  game.grenadeWasDown = input.keys.KeyG;
+  if (grenadePressed && game.grenadeCount > 0 && game.grenadeCooldown <= 0) {
     const dx = input.aimX - game.playerX;
     const dz = input.aimZ - game.playerZ;
     const distance = Math.hypot(dx, dz) || 1;
     const rangeScale = Math.min(1, Math.max(.35, distance / 5));
-    game.burgers.push({
+    game.grenades.push({
       id: game.nextId++,
       x: game.playerX,
       y: 1.22,
@@ -560,9 +560,9 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
       fuse: 1.05,
       spin: 0,
     });
-    game.burgerCount -= 1;
-    game.burgerCooldown = .3;
-    events.burgersChanged = true;
+    game.grenadeCount -= 1;
+    game.grenadeCooldown = .3;
+    events.grenadesChanged = true;
   }
 
   if ((input.fire || input.keys.Space) && game.fireTimer <= 0 && game.reloadTimer <= 0 && game.ammo > 0) {
@@ -584,7 +584,7 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
     events.bulletsChanged = true;
   }
 
-  stepBurgers(game, dt, events);
+  stepGrenades(game, dt, events);
   stepBullets(game, dt, events);
 
   for (let index = game.enemies.length - 1; index >= 0; index -= 1) {
@@ -633,24 +633,24 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
     spawnSupplyPickup(game, 'ammo', events);
     game.pickupTimer = 20;
   }
-  if (game.burgerPickupTimer <= 0) {
-    spawnSupplyPickup(game, 'burger', events);
-    game.burgerPickupTimer = 24;
+  if (game.grenadePickupTimer <= 0) {
+    spawnSupplyPickup(game, 'grenade', events);
+    game.grenadePickupTimer = 24;
   }
   for (let index = game.pickups.length - 1; index >= 0; index -= 1) {
     const pickup = game.pickups[index];
     pickup.phase += dt;
     if (Math.hypot(pickup.x - game.playerX, pickup.z - game.playerZ) < .82) {
       if (pickup.kind === 'ammo') game.reserveAmmo += 100;
-      else game.burgerCount += 2;
+      else game.grenadeCount += 2;
       game.score += 50;
       spawnParticles(game, pickup.x, .42, pickup.z, 16,
-        pickup.kind === 'ammo' ? ['#55dff7', '#d8fbff', '#889a9e'] : ['#f0b64f', '#f8df91', '#568d42', '#70452d'],
+        pickup.kind === 'ammo' ? ['#55dff7', '#d8fbff', '#889a9e'] : ['#e8c871', '#f8eca6', '#77876a'],
         2.4, .075);
       game.pickups.splice(index, 1);
       events.pickupsChanged = true;
       if (pickup.kind === 'ammo') game.pickupTimer = Math.max(game.pickupTimer, 8);
-      else game.burgerPickupTimer = Math.max(game.burgerPickupTimer, 8);
+      else game.grenadePickupTimer = Math.max(game.grenadePickupTimer, 8);
     }
   }
 
