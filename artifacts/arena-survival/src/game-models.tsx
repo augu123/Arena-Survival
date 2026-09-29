@@ -12,6 +12,7 @@ import {
   type Explosion,
   type GrenadeProjectile,
   type Particle,
+  bulletRenderPosition,
 } from './game-simulation';
 
 const GEO = {
@@ -131,16 +132,19 @@ export function createOperatorRig(): OperatorRig {
 export function CarbineModel({
   rigRef,
   motionRef,
+  engineRef,
   scale = 1,
 }: {
   rigRef?: MutableRefObject<OperatorRig>;
   motionRef?: MutableRefObject<OperatorMotion>;
+  engineRef?: MutableRefObject<Engine>;
   scale?: number;
 }) {
   const muzzleRef = useRef<THREE.Group>(null);
   const weaponLightRef = useRef<THREE.PointLight>(null);
   const weaponRef = useRef<THREE.Group>(null);
   const magazineRef = useRef<THREE.Group>(null);
+  const muzzleWorld = useMemo(() => new THREE.Vector3(), []);
 
   useFrame(() => {
     if (rigRef) {
@@ -165,7 +169,20 @@ export function CarbineModel({
       muzzleRef.current.rotation.z = (motionRef?.current.time ?? 0) * 5;
     }
     if (weaponLightRef.current) weaponLightRef.current.intensity = firing > .015 ? 4.2 : 0;
-  });
+    if (engineRef && muzzleRef.current) {
+      // The root, body and recoil transforms have been updated this frame.
+      // Sample the flash anchor, not a separately estimated gun offset.
+      const pending = engineRef.current.bullets.find((bullet) => !bullet.muzzle);
+      if (pending) {
+        muzzleRef.current.updateWorldMatrix(true, false);
+        muzzleRef.current.getWorldPosition(muzzleWorld);
+        pending.muzzle = {
+          x: muzzleWorld.x, y: muzzleWorld.y, z: muzzleWorld.z,
+          shotX: pending.x, shotZ: pending.z,
+        };
+      }
+    }
+  }, -1);
 
   return (
     <group ref={weaponRef} position={[.13, .015, .29]} scale={scale} dispose={null}>
@@ -550,14 +567,16 @@ export function BulletMesh({ bullet }: { bullet: Bullet }) {
   const ref = useRef<THREE.Group>(null);
   const direction = useMemo(() => new THREE.Vector3(), []);
   const axis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  const initialPosition = bulletRenderPosition(bullet);
   useFrame(() => {
     if (!ref.current) return;
-    ref.current.position.set(bullet.x, bullet.y, bullet.z);
+    const position = bulletRenderPosition(bullet);
+    ref.current.position.set(position.x, position.y, position.z);
     direction.set(bullet.vx, 0, bullet.vz).normalize();
     ref.current.quaternion.setFromUnitVectors(axis, direction);
   });
   return (
-    <group ref={ref} dispose={null}>
+    <group ref={ref} position={[initialPosition.x, initialPosition.y, initialPosition.z]} dispose={null}>
       <Part geometry={GEO.cylinder} material={MAT.cyan} scale={[.026, .34, .026]} />
       <Part geometry={GEO.sphere} material={MAT.cyan} position={[0, .17, 0]} scale={[.044, .044, .044]} />
     </group>

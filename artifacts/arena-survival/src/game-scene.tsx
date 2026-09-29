@@ -797,11 +797,11 @@ function SimulationGameLoop({
       hudClock.current = 0;
       hudRef.current(simulationHud(game));
     }
-  });
+  }, -3);
 
   return (
     <>
-      <GLBOperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />
+      <GLBOperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} engineRef={engineRef} />
       {enemies.map((enemy) => <SimulationSleeper key={enemy.id} enemy={enemy} />)}
       {bullets.map((bullet) => <SimulationBulletMesh key={bullet.id} bullet={bullet} />)}
       {grenades.map((grenade) => <GrenadeMesh key={grenade.id} grenade={grenade} />)}

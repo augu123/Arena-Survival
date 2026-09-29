@@ -49,10 +49,24 @@ export type Bullet = {
   x: number;
   y: number;
   z: number;
+  muzzle?: { x: number; y: number; z: number; shotX: number; shotZ: number };
   vx: number;
   vz: number;
   life: number;
 };
+
+// The visual trail starts at the gun but rejoins the original collision path.
+// Neither the bullet's logical coordinates nor its collision checks use this offset.
+export function bulletRenderPosition(bullet: Bullet): { x: number; y: number; z: number } {
+  if (!bullet.muzzle) return { x: bullet.x, y: bullet.y, z: bullet.z };
+  const travel = Math.hypot(bullet.x - bullet.muzzle.shotX, bullet.z - bullet.muzzle.shotZ);
+  const blend = Math.max(0, 1 - travel / 2.5);
+  return {
+    x: bullet.x + (bullet.muzzle.x - bullet.muzzle.shotX) * blend,
+    y: bullet.y + (bullet.muzzle.y - bullet.y) * blend,
+    z: bullet.z + (bullet.muzzle.z - bullet.muzzle.shotZ) * blend,
+  };
+}
 
 export type GrenadeProjectile = {
   id: number;
