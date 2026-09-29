@@ -5,7 +5,7 @@ import { createOperatorAlphaMask, createOperatorCutout, OPERATOR_SHEET_URL, OPER
 import {
   ARENA_LIMIT,
   MAX_PARTICLES,
-  type AmmoPickup,
+  type SupplyPickup,
   type Bullet,
   type Engine,
   type Enemy,
@@ -616,7 +616,7 @@ export function ExplosionMesh({ explosion }: { explosion: Explosion }) {
   );
 }
 
-export function AmmoPickupMesh({ pickup }: { pickup: AmmoPickup }) {
+export function SupplyPickupMesh({ pickup }: { pickup: SupplyPickup }) {
   const ref = useRef<THREE.Group>(null);
   useFrame(({ clock }) => {
     if (!ref.current) return;
@@ -627,12 +627,33 @@ export function AmmoPickupMesh({ pickup }: { pickup: AmmoPickup }) {
     <group ref={ref} dispose={null}>
       <mesh position={[0, .015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[.48, .54, 32]} />
-        <meshBasicMaterial color="#4bdaf2" transparent opacity={.72} side={THREE.DoubleSide} />
+        <meshBasicMaterial color={pickup.kind === 'ammo' ? '#4bdaf2' : '#f5c96d'} transparent opacity={.72} side={THREE.DoubleSide} />
       </mesh>
-      <group rotation={[Math.PI / 2, 0, 0]} scale={.55}>
-        <CarbineModel />
-      </group>
-      <pointLight color="#38cde9" intensity={.9} distance={2.3} />
+      {pickup.kind === 'ammo' ? (
+        <group rotation={[Math.PI / 2, 0, 0]} scale={.55}>
+          <CarbineModel />
+        </group>
+      ) : (
+        <group position={[0, .26, 0]}>
+          <mesh castShadow>
+            <cylinderGeometry args={[.105, .105, .32, 12]} />
+            <meshStandardMaterial color="#617462" metalness={.55} roughness={.4} />
+          </mesh>
+          <mesh position={[0, .19, 0]} castShadow>
+            <cylinderGeometry args={[.09, .08, .06, 12]} />
+            <meshStandardMaterial color="#d8c17d" metalness={.72} roughness={.3} />
+          </mesh>
+          <mesh position={[.1, .22, 0]} rotation={[Math.PI / 2, 0, 0]}>
+            <torusGeometry args={[.055, .014, 8, 16]} />
+            <meshStandardMaterial color="#f1d985" metalness={.72} roughness={.28} />
+          </mesh>
+          <mesh position={[0, .08, .106]}>
+            <boxGeometry args={[.14, .085, .012]} />
+            <meshBasicMaterial color="#f5d284" />
+          </mesh>
+        </group>
+      )}
+      <pointLight color={pickup.kind === 'ammo' ? '#38cde9' : '#e6c36b'} intensity={.9} distance={2.3} />
     </group>
   );
 }

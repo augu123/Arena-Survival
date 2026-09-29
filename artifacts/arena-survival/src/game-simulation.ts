@@ -75,7 +75,7 @@ export type Explosion = {
   radius: number;
 };
 
-export type AmmoPickup = { id: number; x: number; z: number; phase: number };
+export type SupplyPickup = { id: number; kind: 'ammo' | 'grenade'; x: number; z: number; phase: number };
 export type Particle = {
   x: number;
   y: number;
@@ -115,6 +115,7 @@ export type Engine = {
   survival: number;
   spawnTimer: number;
   pickupTimer: number;
+  grenadePickupTimer: number;
   fireTimer: number;
   nextId: number;
   ended: boolean;
@@ -122,7 +123,7 @@ export type Engine = {
   bullets: Bullet[];
   grenades: GrenadeProjectile[];
   explosions: Explosion[];
-  pickups: AmmoPickup[];
+  pickups: SupplyPickup[];
   particles: Particle[];
 };
 
@@ -136,7 +137,6 @@ export type StepEvents = {
 
 export const ARENA_LIMIT = 8.15;
 export const MAGAZINE_SIZE = 60;
-export const MAX_RESERVE_AMMO = 240;
 export const MAX_PARTICLES = 320;
 export const OBSTACLES: Array<{ x: number; z: number; halfX: number; halfZ: number }> = [
   { x: -3.05, z: -2.35, halfX: 1.1, halfZ: .27 },
@@ -172,7 +172,8 @@ export const freshEngine = (): Engine => ({
   wave: 1,
   survival: 0,
   spawnTimer: .65,
-  pickupTimer: 15,
+  pickupTimer: 9,
+  grenadePickupTimer: 12,
   fireTimer: 0,
   nextId: 1,
   ended: false,
@@ -324,16 +325,21 @@ function damageEnemy(
   events.enemiesChanged = true;
 }
 
-function spawnAmmoPickup(game: Engine, events: StepEvents) {
-  if (game.pickups.length > 0) return;
-  const anchors = [
-    [-4.3, -.4], [4.15, .6], [0, -5.7], [0, 5.7], [-5.3, 3.2], [5.3, -3.2],
-  ] as const;
-  const anchor = anchors[Math.floor(Math.random() * anchors.length)];
-  const position = clampToArena(anchor[0], anchor[1]);
-  if (hitsObstacle(position.x, position.z, .5)) return;
-  game.pickups.push({ id: game.nextId++, x: position.x, z: position.z, phase: Math.random() * Math.PI * 2 });
-  events.pickupsChanged = true;
+function spawnSupplyPickup(game: Engine, kind: SupplyPickup['kind'], events: StepEvents) {
+  if (game.pickups.some((pickup) => pickup.kind === kind)) return;
+  const anchors = kind === 'ammo'
+    ? [[-4.3, -.4], [4.15, .6], [0, -5.7], [0, 5.7], [-5.3, 3.2], [5.3, -3.2]]
+    : [[-5.3, -3.2], [5.3, 3.2], [0, -6], [0, 6], [-4.3, .4], [4.15, -.6]];
+  const start = Math.floor(Math.random() * anchors.length);
+  for (let offset = 0; offset < anchors.length; offset += 1) {
+    const [x, z] = anchors[(start + offset) % anchors.length];
+    const position = clampToArena(x, z);
+    if (hitsObstacle(position.x, position.z, .5)
+      || game.pickups.some((pickup) => Math.hypot(pickup.x - x, pickup.z - z) < 1.2)) continue;
+    game.pickups.push({ id: game.nextId++, kind, x: position.x, z: position.z, phase: Math.random() * Math.PI * 2 });
+    events.pickupsChanged = true;
+    return;
+  }
 }
 
 function steerEnemy(enemy: Enemy, playerX: number, playerZ: number, dt: number) {
@@ -476,6 +482,7 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
   game.grenadeCooldown = Math.max(0, game.grenadeCooldown - dt);
   game.spawnTimer -= dt;
   game.pickupTimer -= dt;
+  game.grenadePickupTimer -= dt;
 
   let moveX = (input.keys.KeyD || input.keys.ArrowRight ? 1 : 0)
     - (input.keys.KeyA || input.keys.ArrowLeft ? 1 : 0) + input.touchX;
@@ -609,19 +616,27 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
   }
 
   if (game.pickupTimer <= 0) {
-    spawnAmmoPickup(game, events);
-    game.pickupTimer = 22;
+    spawnSupplyPickup(game, 'ammo', events);
+    game.pickupTimer = 20;
+  }
+  if (game.grenadePickupTimer <= 0) {
+    spawnSupplyPickup(game, 'grenade', events);
+    game.grenadePickupTimer = 24;
   }
   for (let index = game.pickups.length - 1; index >= 0; index -= 1) {
     const pickup = game.pickups[index];
     pickup.phase += dt;
     if (Math.hypot(pickup.x - game.playerX, pickup.z - game.playerZ) < .82) {
-      game.reserveAmmo = Math.min(MAX_RESERVE_AMMO, game.reserveAmmo + 36);
+      if (pickup.kind === 'ammo') game.reserveAmmo += 100;
+      else game.grenadeCount += 2;
       game.score += 50;
-      spawnParticles(game, pickup.x, .42, pickup.z, 16, ['#55dff7', '#d8fbff', '#889a9e'], 2.4, .075);
+      spawnParticles(game, pickup.x, .42, pickup.z, 16,
+        pickup.kind === 'ammo' ? ['#55dff7', '#d8fbff', '#889a9e'] : ['#e8c871', '#f8eca6', '#77876a'],
+        2.4, .075);
       game.pickups.splice(index, 1);
       events.pickupsChanged = true;
-      game.pickupTimer = Math.max(game.pickupTimer, 8);
+      if (pickup.kind === 'ammo') game.pickupTimer = Math.max(game.pickupTimer, 8);
+      else game.grenadePickupTimer = Math.max(game.grenadePickupTimer, 8);
     }
   }
 

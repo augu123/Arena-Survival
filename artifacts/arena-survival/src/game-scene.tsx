@@ -10,7 +10,7 @@ import {
   ARENA_LIMIT,
   OBSTACLES,
   type Engine as SimulationEngine,
-  type AmmoPickup,
+  type SupplyPickup,
   type Bullet as SimulationBullet,
   type Enemy as SimulationEnemy,
   type Explosion as SimulationExplosion,
@@ -23,7 +23,7 @@ import {
   toHud as simulationHud,
 } from './game-simulation';
 import {
-  AmmoPickupMesh,
+  SupplyPickupMesh,
   BulletMesh as SimulationBulletMesh,
   createOperatorRig,
   ExplosionMesh as SimulationExplosionMesh,
@@ -32,7 +32,7 @@ import {
   SleeperCharacter,
   type OperatorMotion,
 } from './game-models';
-import { OperatorCharacter3D } from './operator-character-3d';
+import { GLBOperatorCharacter } from './glb-operator-character';
 import { createOperatorCutout, OPERATOR_SHEET_URL } from './operator-texture';
 
 export type { GameStatus, HudStats, InputState } from './game-simulation';
@@ -716,7 +716,7 @@ function SimulationGameLoop({
   const [bullets, setBullets] = useState<SimulationBullet[]>([]);
   const [grenades, setGrenades] = useState<GrenadeProjectile[]>([]);
   const [explosions, setExplosions] = useState<SimulationExplosion[]>([]);
-  const [pickups, setPickups] = useState<AmmoPickup[]>([]);
+  const [pickups, setPickups] = useState<SupplyPickup[]>([]);
   const playerRef = useRef<THREE.Group | null>(null);
   const rigRef = useRef(createOperatorRig());
   const motionRef = useRef<OperatorMotion>({ time: 0, speed: 0, firePulse: 0, reloadBlend: 0, damagePulse: 0 });
@@ -798,12 +798,12 @@ function SimulationGameLoop({
 
   return (
     <>
-      <OperatorCharacter3D rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />
+      <GLBOperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />
       {enemies.map((enemy) => <SimulationSleeper key={enemy.id} enemy={enemy} />)}
       {bullets.map((bullet) => <SimulationBulletMesh key={bullet.id} bullet={bullet} />)}
       {grenades.map((grenade) => <GrenadeMesh key={grenade.id} grenade={grenade} />)}
       {explosions.map((explosion) => <SimulationExplosionMesh key={explosion.id} explosion={explosion} />)}
-      {pickups.map((pickup) => <AmmoPickupMesh key={pickup.id} pickup={pickup} />)}
+      {pickups.map((pickup) => <SupplyPickupMesh key={pickup.id} pickup={pickup} />)}
       <ParticleField engineRef={engineRef} />
     </>
   );
@@ -821,24 +821,22 @@ function CameraAndLights({
   engineRef: MutableRefObject<SimulationEngine>;
   active: boolean;
 }) {
-  const { camera, size } = useThree();
+  const { camera } = useThree();
   const basePosition = useRef(new THREE.Vector3());
   useEffect(() => {
     const perspectiveCamera = camera as THREE.PerspectiveCamera;
     const verticalHalfFov = THREE.MathUtils.degToRad(perspectiveCamera.fov / 2);
-    const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * size.width / Math.max(1, size.height));
     const tilt = Math.atan2(14, 19);
     const radius = 9.35;
     const verticalExtent = radius * Math.cos(tilt) + 1.25 * Math.sin(tilt);
-    const distance = Math.max(
-      radius / Math.tan(horizontalHalfFov),
-      verticalExtent / Math.tan(verticalHalfFov),
-    ) * 1.1;
+    // Fit vertically; fitting the entire arena horizontally on a portrait
+    // screen pushes the camera beyond the fog and hides the player.
+    const distance = verticalExtent / Math.tan(verticalHalfFov) * 1.1;
     camera.position.set(0, distance * Math.cos(tilt), distance * Math.sin(tilt));
     basePosition.current.copy(camera.position);
     camera.lookAt(0, 0, 0);
     perspectiveCamera.updateProjectionMatrix();
-  }, [camera, size.width, size.height]);
+  }, [camera]);
   useFrame((state) => {
     const shake = active ? engineRef.current.cameraShake : 0;
     camera.position.set(
@@ -1049,9 +1047,11 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
         ctx.save();
         ctx.translate(sx, sy);
         ctx.rotate(Math.sin(pickup.phase) * .12);
-        ctx.shadowColor = '#4edff6';
+        ctx.shadowColor = pickup.kind === 'ammo' ? '#4edff6' : '#e8be59';
         ctx.shadowBlur = 18;
-        ctx.strokeStyle = `rgba(98, 232, 250, ${pulse})`;
+        ctx.strokeStyle = pickup.kind === 'ammo'
+          ? `rgba(98, 232, 250, ${pulse})`
+          : `rgba(246, 202, 105, ${pulse})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(0, 0, 13 + pulse * 2, 0, Math.PI * 2);
@@ -1059,9 +1059,15 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
         ctx.lineCap = 'round';
         ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.moveTo(-10, 0); ctx.lineTo(8, 0);
-        ctx.moveTo(-2, 0); ctx.lineTo(-2, 7);
-        ctx.moveTo(7, 0); ctx.lineTo(11, -3);
+        if (pickup.kind === 'ammo') {
+          ctx.moveTo(-10, 0); ctx.lineTo(8, 0);
+          ctx.moveTo(-2, 0); ctx.lineTo(-2, 7);
+          ctx.moveTo(7, 0); ctx.lineTo(11, -3);
+        } else {
+          ctx.moveTo(-5, -7); ctx.lineTo(5, -7);
+          ctx.lineTo(5, 7); ctx.lineTo(-5, 7); ctx.closePath();
+          ctx.moveTo(-2, -10); ctx.lineTo(3, -10);
+        }
         ctx.stroke();
         ctx.restore();
         ctx.shadowBlur = 0;
@@ -1244,7 +1250,6 @@ export function GameScene(props: SceneProps) {
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1.15;
       }}
-      fallback={<FallbackScene {...props} />}
     >
       <CameraAndLights engineRef={engineRef} active={props.active} />
       <ArenaGeometry />
