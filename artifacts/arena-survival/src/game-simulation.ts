@@ -177,6 +177,18 @@ export const OBSTACLES: Array<{ x: number; z: number; halfX: number; halfZ: numb
   { x: 0, z: 4.35, halfX: .65, halfZ: .4 },
 ];
 
+export const ARENA_CAR = {
+  x: 0,
+  z: 2.25,
+  y: .025,
+  scale: 3,
+  rotationY: 0,
+  halfX: .72,
+  halfZ: 1.53,
+};
+
+const SOLID_OBSTACLES = [...OBSTACLES, ARENA_CAR];
+
 export const freshEngine = (): Engine => ({
   playerX: 0,
   playerZ: 0,
@@ -250,9 +262,44 @@ export function clampToArena(x: number, z: number) {
 }
 
 export function hitsObstacle(x: number, z: number, radius = .28) {
-  return OBSTACLES.some((obstacle) =>
+  return SOLID_OBSTACLES.some((obstacle) =>
     Math.abs(x - obstacle.x) < obstacle.halfX + radius
     && Math.abs(z - obstacle.z) < obstacle.halfZ + radius,
+  );
+}
+
+function segmentIntersectsObstacle(
+  startX: number,
+  startZ: number,
+  endX: number,
+  endZ: number,
+  obstacle: { x: number; z: number; halfX: number; halfZ: number },
+  radius: number,
+) {
+  const deltaX = endX - startX;
+  const deltaZ = endZ - startZ;
+  const minX = obstacle.x - obstacle.halfX - radius;
+  const maxX = obstacle.x + obstacle.halfX + radius;
+  const minZ = obstacle.z - obstacle.halfZ - radius;
+  const maxZ = obstacle.z + obstacle.halfZ + radius;
+  let entry = 0;
+  let exit = 1;
+
+  const clip = (start: number, delta: number, min: number, max: number) => {
+    if (Math.abs(delta) < 1e-9) return start >= min && start <= max;
+    const first = (min - start) / delta;
+    const second = (max - start) / delta;
+    entry = Math.max(entry, Math.min(first, second));
+    exit = Math.min(exit, Math.max(first, second));
+    return entry <= exit;
+  };
+
+  return clip(startX, deltaX, minX, maxX) && clip(startZ, deltaZ, minZ, maxZ);
+}
+
+export function segmentHitsObstacle(startX: number, startZ: number, endX: number, endZ: number, radius = .06) {
+  return SOLID_OBSTACLES.some((obstacle) =>
+    segmentIntersectsObstacle(startX, startZ, endX, endZ, obstacle, radius),
   );
 }
 
@@ -491,7 +538,7 @@ function stepBullets(game: Engine, dt: number, events: StepEvents) {
     bullet.life -= dt;
     let remove = bullet.life <= 0 || Math.hypot(bullet.x, bullet.z) > ARENA_LIMIT + .6;
 
-    if (!remove && hitsObstacle(bullet.x, bullet.z, .06)) {
+    if (!remove && segmentHitsObstacle(oldX, oldZ, bullet.x, bullet.z, .06)) {
       spawnParticles(game, bullet.x, bullet.y, bullet.z, 5, ['#a9f5ff', '#58d9f1', '#879398'], 1.45, .04);
       remove = true;
     }

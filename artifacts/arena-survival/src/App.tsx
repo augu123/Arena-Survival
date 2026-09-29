@@ -94,6 +94,7 @@ function GameHome() {
           onHud={updateHud}
           onGameOver={gameOver}
           onPause={pauseGame}
+          showCar={status !== 'menu'}
         />
         <div className="hud-layer">
           {status === 'playing' && (

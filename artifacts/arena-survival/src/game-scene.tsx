@@ -1,4 +1,4 @@
-import { type MutableRefObject, type PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, type MutableRefObject, type PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Environment } from '@react-three/drei';
 import { Bloom, EffectComposer, N8AO } from '@react-three/postprocessing';
@@ -8,7 +8,10 @@ import { getConcreteTextures, getWoodTextures, tiledTexture } from './arena-text
 import { OPTIONAL_REAL_CONCRETE_TEXTURE_URLS, REAL_WOOD_TEXTURE_URLS, upgradeMaterialTextures } from './real-textures';
 import {
   ARENA_LIMIT,
+  ARENA_CAR,
   OBSTACLES,
+  hitsObstacle as simulationHitsObstacle,
+  segmentHitsObstacle as simulationSegmentHitsObstacle,
   type Engine as SimulationEngine,
   type SupplyPickup,
   type Bullet as SimulationBullet,
@@ -36,6 +39,7 @@ import {
 } from './game-models';
 import { GLBOperatorCharacter } from './glb-operator-character';
 import { MiniBossCharacter } from './mini-boss-character';
+import { ArenaCarModel, ArenaCarPlaceholder } from './arena-car';
 import { createOperatorCutout, OPERATOR_SHEET_URL } from './operator-texture';
 
 export type { GameStatus, HudStats, InputState } from './game-simulation';
@@ -85,10 +89,7 @@ function clampToArena(x: number, z: number) {
 }
 
 function hitsObstacle(x: number, z: number, radius = .28) {
-  return OBSTACLES.some((obstacle) =>
-    Math.abs(x - obstacle.x) < obstacle.halfX + radius
-    && Math.abs(z - obstacle.z) < obstacle.halfZ + radius,
-  );
+  return simulationHitsObstacle(x, z, radius);
 }
 
 function moveActor(x: number, z: number, dx: number, dz: number, radius = .28) {
@@ -106,6 +107,7 @@ function moveActor(x: number, z: number, dx: number, dz: number, radius = .28) {
 
 type SceneProps = {
   active: boolean;
+  showCar?: boolean;
   resetKey: number;
   inputRef: MutableRefObject<InputState>;
   onHud: (stats: HudStats) => void;
@@ -128,7 +130,7 @@ function Ground({ inputRef }: { inputRef: MutableRefObject<InputState> }) {
   );
 }
 
-function ArenaGeometry() {
+function ArenaGeometry({ showCar }: { showCar: boolean }) {
   const floorMaterial = useMemo(() => {
     const concrete = getConcreteTextures();
     return new THREE.MeshStandardMaterial({
@@ -271,6 +273,11 @@ function ArenaGeometry() {
           </mesh>
         </group>
       ))}
+      {showCar && (
+        <Suspense fallback={<ArenaCarPlaceholder />}>
+          <ArenaCarModel />
+        </Suspense>
+      )}
       {[[-1.7, -4.1], [1.8, -4.25], [-1.8, 4.15], [1.8, 4.2]].map(([x, z], index) => (
         <group key={`crate-${index}`} position={[x, .28, z]}>
           <mesh castShadow receiveShadow>
@@ -623,8 +630,11 @@ function GameLoop({ active, resetKey, inputRef, onHud, onGameOver, onPause }: Sc
 
     const livingBullets: Bullet[] = [];
     for (const bullet of game.bullets) {
+      const oldX = bullet.x;
+      const oldZ = bullet.z;
       bullet.x += bullet.vx * dt; bullet.z += bullet.vz * dt; bullet.life -= dt;
       if (bullet.life <= 0 || Math.abs(bullet.x) > 10 || Math.abs(bullet.z) > 10) continue;
+      if (simulationSegmentHitsObstacle(oldX, oldZ, bullet.x, bullet.z, .06)) continue;
       let hit = false;
       for (let index = game.enemies.length - 1; index >= 0; index -= 1) {
         const enemy = game.enemies[index];
@@ -1039,6 +1049,28 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
           ctx.fillRect(sx - obstacle.halfX * map.sx, sy - obstacle.halfZ * map.sy, obstacle.halfX * 2 * map.sx, Math.max(2, obstacle.halfZ * map.sy * .18));
         }
       }
+      {
+        const [carX, carY] = toScreen(ARENA_CAR.x, ARENA_CAR.z, map);
+        const carWidth = ARENA_CAR.halfX * 2 * map.sx;
+        const carLength = ARENA_CAR.halfZ * 2 * map.sy;
+        ctx.save();
+        ctx.translate(carX, carY);
+        ctx.fillStyle = 'rgba(0,0,0,.52)';
+        ctx.fillRect(-carWidth * .62, -carLength * .47, carWidth * 1.24, carLength * .94);
+        ctx.fillStyle = '#27343b';
+        ctx.strokeStyle = '#9caeb3';
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(-carWidth * .48, -carLength * .5, carWidth * .96, carLength);
+        ctx.strokeRect(-carWidth * .48, -carLength * .5, carWidth * .96, carLength);
+        ctx.fillStyle = '#59757d';
+        ctx.fillRect(-carWidth * .31, -carLength * .25, carWidth * .62, carLength * .43);
+        ctx.fillStyle = 'rgba(181,224,232,.68)';
+        ctx.fillRect(-carWidth * .27, -carLength * .19, carWidth * .54, carLength * .15);
+        ctx.fillStyle = '#e9c775';
+        ctx.fillRect(-carWidth * .34, carLength * .4, carWidth * .2, Math.max(2, carLength * .045));
+        ctx.fillRect(carWidth * .14, carLength * .4, carWidth * .2, Math.max(2, carLength * .045));
+        ctx.restore();
+      }
 
       for (const explosion of simulation.explosions) {
         const [sx, sy] = toScreen(explosion.x, explosion.z, map);
@@ -1292,7 +1324,7 @@ export function GameScene(props: SceneProps) {
       }}
     >
       <CameraAndLights engineRef={engineRef} active={props.active} />
-      <ArenaGeometry />
+      <ArenaGeometry showCar={props.showCar ?? true} />
       <Ground inputRef={props.inputRef} />
       <SimulationGameLoop {...props} engineRef={engineRef} />
       <PostFX />
