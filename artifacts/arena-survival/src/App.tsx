@@ -25,6 +25,8 @@ const initialHud: ArenaHud = {
   radar: [],
   reload: 0,
   damageFlash: 0,
+  nearCar: false,
+  playerDriving: false,
 };
 const initialInput: InputState = { keys: {}, fire: false, aimX: 0, aimZ: -5, touchX: 0, touchZ: 0 };
 
@@ -62,7 +64,7 @@ function GameHome() {
     setHud((current) => ({ ...current, ...stats }));
   };
 
-  const triggerAction = (code: 'KeyR' | 'KeyG') => {
+  const triggerAction = (code: 'KeyR' | 'KeyG' | 'KeyF') => {
     inputRef.current.keys[code] = true;
     window.setTimeout(() => { inputRef.current.keys[code] = false; }, 140);
   };
@@ -152,6 +154,23 @@ function GameHome() {
                   <button className="pause-button" data-testid="pause-button" onClick={pauseGame}><span className="pause-glyph">||</span> Pause</button>
                 </div>
               </div>
+              {(hud.nearCar || hud.playerDriving) && (
+                <section className="vehicle-control-chip" data-testid="vehicle-control-chip" role="status" aria-live="polite">
+                  <span className="vehicle-status-light" />
+                  <div className="vehicle-status-copy">
+                    <strong>{hud.playerDriving ? 'ARMORED DRIVE' : 'VEHICLE NEARBY'}</strong>
+                    <span>{hud.playerDriving ? 'DAMAGE IMMUNITY ACTIVE' : 'ENTER TO DRIVE'}</span>
+                  </div>
+                  <button
+                    className="vehicle-interaction"
+                    data-testid="vehicle-interaction"
+                    onClick={() => triggerAction('KeyF')}
+                    aria-label={hud.playerDriving ? 'Exit vehicle' : 'Enter vehicle'}
+                  >
+                    <b>F</b><span>{hud.playerDriving ? 'EXIT' : 'DRIVE'}</span>
+                  </button>
+                </section>
+              )}
               <div className="hud-bottomline">
                 <div className="score-readout">
                   <span>RUN SCORE</span><strong data-testid="score-stat">{hud.score.toString().padStart(5, '0')}</strong>
@@ -167,18 +186,18 @@ function GameHome() {
                     <div className="weapon-meta"><span>AMMO</span><span className="grenade-count"><i className="grenade-icon" /> <b data-testid="grenade-stat">{hud.grenades}</b></span></div>
                   </div>
                   <div className="weapon-actions">
-                    <button className="action-button" data-testid="reload-button" onClick={() => triggerAction('KeyR')}><b>R</b> Reload</button>
-                    <button className="action-button" data-testid="grenade-button" onClick={() => triggerAction('KeyG')}><b>G</b> Frag</button>
+                    <button className="action-button" data-testid="reload-button" disabled={hud.playerDriving} onClick={() => triggerAction('KeyR')}><b>R</b> Reload</button>
+                    <button className="action-button" data-testid="grenade-button" disabled={hud.playerDriving} onClick={() => triggerAction('KeyG')}><b>G</b> Frag</button>
                   </div>
                 </section>
               </div>
-              <div className="bottom-hint">WASD / arrows to move <span>•</span> shift to sprint <span>•</span> mouse aim + hold click to fire <span>•</span> P to pause</div>
+              <div className="bottom-hint">{hud.playerDriving ? 'WASD / arrows to steer • F to exit • invulnerable while driving' : 'WASD / arrows to move • F near car to drive • shift to sprint • mouse aim + hold click to fire • P to pause'}</div>
               <div className="touch-ui">
                 <div className="touch-stick touch-control" data-testid="touch-move" onPointerDown={setTouchVector} onPointerMove={(event) => { if (touchActive) setTouchVector(event); }} onPointerUp={clearTouch} onPointerCancel={clearTouch}><span className="stick-core" /></div>
                 <div className="touch-actions">
-                  <button className="touch-action touch-control" data-testid="touch-reload" onPointerDown={() => triggerAction('KeyR')}>R</button>
-                  <button className="touch-action touch-control" data-testid="touch-grenade" onPointerDown={() => triggerAction('KeyG')}>G</button>
-                  <button className="fire-control touch-control" data-testid="touch-fire" onPointerDown={(event) => { event.stopPropagation(); inputRef.current.fire = true; }} onPointerUp={() => { inputRef.current.fire = false; }} onPointerCancel={() => { inputRef.current.fire = false; }}>FIRE</button>
+                  <button className="touch-action touch-control" data-testid="touch-reload" disabled={hud.playerDriving} onPointerDown={() => triggerAction('KeyR')}>R</button>
+                  <button className="touch-action touch-control" data-testid="touch-grenade" disabled={hud.playerDriving} onPointerDown={() => triggerAction('KeyG')}>G</button>
+                  <button className="fire-control touch-control" data-testid="touch-fire" disabled={hud.playerDriving} onPointerDown={(event) => { event.stopPropagation(); if (!hud.playerDriving) inputRef.current.fire = true; }} onPointerUp={() => { inputRef.current.fire = false; }} onPointerCancel={() => { inputRef.current.fire = false; }}>FIRE</button>
                 </div>
               </div>
             </>
@@ -191,7 +210,7 @@ function GameHome() {
               <div className="operator-line"><span>OPERATOR</span> ELIAS “JACK” THORNE <i>•</i> LIVE COMBAT SIMULATION</div>
               <p className="game-copy">The perimeter is gone. Hold the center of the concrete ring, keep moving, and make every clean shot buy another second.</p>
               <button className="primary-button" data-testid="start-button" onClick={startGame}><span>Enter the arena</span><b>→</b></button>
-              <div className="control-rail"><span><b className="keycap">WASD</b> Move</span><span><b className="keycap">SHIFT</b> Sprint</span><span><b className="keycap">MOUSE</b> Aim / fire</span><span><b className="keycap">R</b> Reload</span><span><b className="keycap">G</b> Frag</span></div>
+               <div className="control-rail"><span><b className="keycap">WASD</b> Move / drive</span><span><b className="keycap">F</b> Enter / exit</span><span><b className="keycap">SHIFT</b> Sprint</span><span><b className="keycap">MOUSE</b> Aim / fire</span><span><b className="keycap">R</b> Reload</span><span><b className="keycap">G</b> Frag</span></div>
               {best > 0 && <div className="local-best">LOCAL BEST <strong>{best.toString().padStart(5, '0')}</strong></div>}
             </section>
           )}

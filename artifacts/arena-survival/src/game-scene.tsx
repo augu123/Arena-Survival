@@ -79,6 +79,8 @@ const toHud = (game: Engine): HudStats => ({
   ]),
   reload: 0,
   damageFlash: 0,
+  nearCar: false,
+  playerDriving: false,
 });
 
 function clampToArena(x: number, z: number) {
@@ -130,7 +132,13 @@ function Ground({ inputRef }: { inputRef: MutableRefObject<InputState> }) {
   );
 }
 
-function ArenaGeometry({ showCar }: { showCar: boolean }) {
+function ArenaGeometry({
+  showCar,
+  engineRef,
+}: {
+  showCar: boolean;
+  engineRef: MutableRefObject<SimulationEngine>;
+}) {
   const floorMaterial = useMemo(() => {
     const concrete = getConcreteTextures();
     return new THREE.MeshStandardMaterial({
@@ -274,8 +282,8 @@ function ArenaGeometry({ showCar }: { showCar: boolean }) {
         </group>
       ))}
       {showCar && (
-        <Suspense fallback={<ArenaCarPlaceholder />}>
-          <ArenaCarModel />
+        <Suspense fallback={<ArenaCarPlaceholder engineRef={engineRef} />}>
+          <ArenaCarModel engineRef={engineRef} />
         </Suspense>
       )}
       {[[-1.7, -4.1], [1.8, -4.25], [-1.8, 4.15], [1.8, 4.2]].map(([x, z], index) => (
@@ -786,6 +794,7 @@ function SimulationGameLoop({
     const events = stepGame(game, inputRef.current, rawDelta);
     const facing = Math.atan2(inputRef.current.aimX - game.playerX, inputRef.current.aimZ - game.playerZ);
     if (playerRef.current) {
+      playerRef.current.visible = !game.vehicle.driving;
       playerRef.current.position.set(game.playerX, .02 + Math.sin(game.playerPhase * 14) * .012 * game.playerSpeed, game.playerZ);
       playerRef.current.rotation.y = facing;
     }
@@ -847,6 +856,8 @@ function CameraAndLights({
 }) {
   const { camera } = useThree();
   const basePosition = useRef(new THREE.Vector3());
+  const focus = useRef(new THREE.Vector3());
+  const focusTarget = useRef(new THREE.Vector3());
   useEffect(() => {
     const perspectiveCamera = camera as THREE.PerspectiveCamera;
     const verticalHalfFov = THREE.MathUtils.degToRad(perspectiveCamera.fov / 2);
@@ -861,14 +872,17 @@ function CameraAndLights({
     camera.lookAt(0, 0, 0);
     perspectiveCamera.updateProjectionMatrix();
   }, [camera]);
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const shake = active ? engineRef.current.cameraShake : 0;
+    const game = engineRef.current;
+    focusTarget.current.set(game.vehicle.driving ? game.vehicle.x : 0, 0, game.vehicle.driving ? game.vehicle.z : 0);
+    focus.current.lerp(focusTarget.current, 1 - Math.exp(-delta * 3.8));
     camera.position.set(
-      basePosition.current.x + Math.sin(state.clock.elapsedTime * 91) * shake * .012,
+      basePosition.current.x + focus.current.x + Math.sin(state.clock.elapsedTime * 91) * shake * .012,
       basePosition.current.y,
-      basePosition.current.z + Math.cos(state.clock.elapsedTime * 83) * shake * .01,
+      basePosition.current.z + focus.current.z + Math.cos(state.clock.elapsedTime * 83) * shake * .01,
     );
-    camera.lookAt(0, 0, 0);
+    camera.lookAt(focus.current.x, 0, focus.current.z);
   });
   return (
     <>
@@ -1050,11 +1064,26 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
         }
       }
       {
-        const [carX, carY] = toScreen(ARENA_CAR.x, ARENA_CAR.z, map);
+        const [carX, carY] = toScreen(simulation.vehicle.x, simulation.vehicle.z, map);
         const carWidth = ARENA_CAR.halfX * 2 * map.sx;
         const carLength = ARENA_CAR.halfZ * 2 * map.sy;
+        const screenHeading = Math.atan2(
+          -Math.sin(simulation.vehicle.heading) * map.sx,
+          Math.cos(simulation.vehicle.heading) * map.sy,
+        );
         ctx.save();
         ctx.translate(carX, carY);
+        ctx.rotate(screenHeading);
+        if (simulation.vehicle.driving) {
+          ctx.beginPath();
+          ctx.ellipse(0, 0, carWidth * .76, carLength * .62, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(84,230,255,.88)';
+          ctx.lineWidth = 2;
+          ctx.shadowColor = '#54e6ff';
+          ctx.shadowBlur = 12;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        }
         ctx.fillStyle = 'rgba(0,0,0,.52)';
         ctx.fillRect(-carWidth * .62, -carLength * .47, carWidth * 1.24, carLength * .94);
         ctx.fillStyle = '#27343b';
@@ -1216,44 +1245,46 @@ function FallbackScene({ active, resetKey, inputRef, onHud, onGameOver, onPause 
           ctx.fillRect(sx - barWidth / 2 + 1, sy - (isBoss ? 38 : 28), (barWidth - 2) * ratio, isBoss ? 2 : 1);
         }
       }
-      const [playerX, playerY] = toScreen(simulation.playerX, simulation.playerZ, map);
-      const aimX = (inputRef.current.aimX - simulation.playerX) * map.sx;
-      const aimY = (inputRef.current.aimZ - simulation.playerZ) * map.sy;
-      const spriteWidth = Math.max(20, map.sx * .82);
-      const spriteHeight = Math.max(42, map.sy * 1.78);
-      ctx.save();
-      ctx.translate(playerX, playerY);
-      ctx.rotate(Math.atan2(aimY, aimX) + Math.PI / 2);
-      ctx.fillStyle = 'rgba(0,0,0,.4)';
-      ctx.beginPath(); ctx.ellipse(0, 5, 15, 7, 0, 0, Math.PI * 2); ctx.fill();
-      if (operatorSprite) {
-        ctx.drawImage(operatorSprite, -spriteWidth / 2, -spriteHeight + 5, spriteWidth, spriteHeight);
-      } else {
-        ctx.fillStyle = '#60727a';
-        ctx.fillRect(-spriteWidth / 3, -spriteHeight * .72, spriteWidth * 2 / 3, spriteHeight * .65);
-        ctx.fillStyle = '#c49a7e';
-        ctx.beginPath(); ctx.arc(0, -spriteHeight * .8, spriteWidth * .18, 0, Math.PI * 2); ctx.fill();
+      if (!simulation.vehicle.driving) {
+        const [playerX, playerY] = toScreen(simulation.playerX, simulation.playerZ, map);
+        const aimX = (inputRef.current.aimX - simulation.playerX) * map.sx;
+        const aimY = (inputRef.current.aimZ - simulation.playerZ) * map.sy;
+        const spriteWidth = Math.max(20, map.sx * .82);
+        const spriteHeight = Math.max(42, map.sy * 1.78);
+        ctx.save();
+        ctx.translate(playerX, playerY);
+        ctx.rotate(Math.atan2(aimY, aimX) + Math.PI / 2);
+        ctx.fillStyle = 'rgba(0,0,0,.4)';
+        ctx.beginPath(); ctx.ellipse(0, 5, 15, 7, 0, 0, Math.PI * 2); ctx.fill();
+        if (operatorSprite) {
+          ctx.drawImage(operatorSprite, -spriteWidth / 2, -spriteHeight + 5, spriteWidth, spriteHeight);
+        } else {
+          ctx.fillStyle = '#60727a';
+          ctx.fillRect(-spriteWidth / 3, -spriteHeight * .72, spriteWidth * 2 / 3, spriteHeight * .65);
+          ctx.fillStyle = '#c49a7e';
+          ctx.beginPath(); ctx.arc(0, -spriteHeight * .8, spriteWidth * .18, 0, Math.PI * 2); ctx.fill();
+        }
+        const muzzleX = spriteWidth * .23;
+        ctx.strokeStyle = '#9ca9ad';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(muzzleX, -spriteHeight * .38); ctx.lineTo(muzzleX, -spriteHeight * .87); ctx.stroke();
+        ctx.strokeStyle = '#48d9f5';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(muzzleX, -spriteHeight * .55); ctx.lineTo(muzzleX, -spriteHeight * .97); ctx.stroke();
+        ctx.shadowColor = '#48d9f5';
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = '#54e6ff';
+        ctx.fillRect(muzzleX - 2, -spriteHeight * .73, 5, 2);
+        if (simulation.firePulse > 0) {
+          ctx.shadowColor = '#8af5ff';
+          ctx.shadowBlur = 18;
+          ctx.fillStyle = '#d5fbff';
+          ctx.beginPath(); ctx.ellipse(muzzleX, -spriteHeight, 5 + simulation.firePulse * 20, 2.5 + simulation.firePulse * 10, 0, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+        ctx.shadowBlur = 0;
       }
-      const muzzleX = spriteWidth * .23;
-      ctx.strokeStyle = '#9ca9ad';
-      ctx.lineWidth = 4;
-      ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(muzzleX, -spriteHeight * .38); ctx.lineTo(muzzleX, -spriteHeight * .87); ctx.stroke();
-      ctx.strokeStyle = '#48d9f5';
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(muzzleX, -spriteHeight * .55); ctx.lineTo(muzzleX, -spriteHeight * .97); ctx.stroke();
-      ctx.shadowColor = '#48d9f5';
-      ctx.shadowBlur = 10;
-      ctx.fillStyle = '#54e6ff';
-      ctx.fillRect(muzzleX - 2, -spriteHeight * .73, 5, 2);
-      if (simulation.firePulse > 0) {
-        ctx.shadowColor = '#8af5ff';
-        ctx.shadowBlur = 18;
-        ctx.fillStyle = '#d5fbff';
-        ctx.beginPath(); ctx.ellipse(muzzleX, -spriteHeight, 5 + simulation.firePulse * 20, 2.5 + simulation.firePulse * 10, 0, 0, Math.PI * 2); ctx.fill();
-      }
-      ctx.restore();
-      ctx.shadowBlur = 0;
 
       frame = requestAnimationFrame(draw);
     };
@@ -1324,7 +1355,7 @@ export function GameScene(props: SceneProps) {
       }}
     >
       <CameraAndLights engineRef={engineRef} active={props.active} />
-      <ArenaGeometry showCar={props.showCar ?? true} />
+      <ArenaGeometry showCar={props.showCar ?? true} engineRef={engineRef} />
       <Ground inputRef={props.inputRef} />
       <SimulationGameLoop {...props} engineRef={engineRef} />
       <PostFX />

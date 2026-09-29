@@ -9,6 +9,15 @@ export type InputState = {
   touchZ: number;
 };
 
+export type VehicleState = {
+  x: number;
+  z: number;
+  heading: number;
+  speed: number;
+  driving: boolean;
+  interactWasDown: boolean;
+};
+
 export type HudStats = {
   health: number;
   shield: number;
@@ -24,6 +33,8 @@ export type HudStats = {
   radar: Array<[number, number]>;
   reload: number;
   damageFlash: number;
+  nearCar: boolean;
+  playerDriving: boolean;
 };
 
 export type Enemy = {
@@ -120,6 +131,7 @@ export type Engine = {
   playerZ: number;
   playerVX: number;
   playerVZ: number;
+  vehicle: VehicleState;
   playerSpeed: number;
   playerPhase: number;
   firePulse: number;
@@ -187,13 +199,25 @@ export const ARENA_CAR = {
   halfZ: 1.53,
 };
 
-const SOLID_OBSTACLES = [...OBSTACLES, ARENA_CAR];
+const STARTING_VEHICLE_POSITION = {
+  x: ARENA_CAR.x,
+  z: ARENA_CAR.z,
+  heading: ARENA_CAR.rotationY,
+};
+
+export const VEHICLE_INTERACTION_REACH = 1.25;
 
 export const freshEngine = (): Engine => ({
   playerX: 0,
   playerZ: 0,
   playerVX: 0,
   playerVZ: 0,
+  vehicle: {
+    ...STARTING_VEHICLE_POSITION,
+    speed: 0,
+    driving: false,
+    interactWasDown: false,
+  },
   playerSpeed: 0,
   playerPhase: 0,
   firePulse: 0,
@@ -248,6 +272,8 @@ export const toHud = (game: Engine): HudStats => ({
   ]),
   reload: game.reloadDuration > 0 ? clamp(1 - game.reloadTimer / game.reloadDuration, 0, 1) : 0,
   damageFlash: clamp(game.damageFlash, 0, 1),
+  nearCar: !game.vehicle.driving && isNearVehicle(game.playerX, game.playerZ, game.vehicle),
+  playerDriving: game.vehicle.driving,
 });
 
 function clamp(value: number, min: number, max: number) {
@@ -261,10 +287,50 @@ export function clampToArena(x: number, z: number) {
   return { x: x * scale, z: z * scale };
 }
 
-export function hitsObstacle(x: number, z: number, radius = .28) {
-  return SOLID_OBSTACLES.some((obstacle) =>
+type VehiclePose = Pick<VehicleState, 'x' | 'z' | 'heading'>;
+
+function vehicleBounds(vehicle: VehiclePose) {
+  const cosine = Math.abs(Math.cos(vehicle.heading));
+  const sine = Math.abs(Math.sin(vehicle.heading));
+  return {
+    x: vehicle.x,
+    z: vehicle.z,
+    halfX: cosine * ARENA_CAR.halfX + sine * ARENA_CAR.halfZ,
+    halfZ: sine * ARENA_CAR.halfX + cosine * ARENA_CAR.halfZ,
+  };
+}
+
+function vehicleLocalOffset(x: number, z: number, vehicle: VehiclePose) {
+  const deltaX = x - vehicle.x;
+  const deltaZ = z - vehicle.z;
+  const cosine = Math.cos(vehicle.heading);
+  const sine = Math.sin(vehicle.heading);
+  return {
+    x: cosine * deltaX - sine * deltaZ,
+    z: sine * deltaX + cosine * deltaZ,
+  };
+}
+
+export function isNearVehicle(x: number, z: number, vehicle: VehiclePose) {
+  const local = vehicleLocalOffset(x, z, vehicle);
+  const outsideX = Math.max(0, Math.abs(local.x) - ARENA_CAR.halfX);
+  const outsideZ = Math.max(0, Math.abs(local.z) - ARENA_CAR.halfZ);
+  return Math.hypot(outsideX, outsideZ) <= VEHICLE_INTERACTION_REACH;
+}
+
+export function hitsObstacle(
+  x: number,
+  z: number,
+  radius = .28,
+  vehicle: VehiclePose = STARTING_VEHICLE_POSITION,
+) {
+  const car = vehicleBounds(vehicle);
+  return OBSTACLES.some((obstacle) =>
     Math.abs(x - obstacle.x) < obstacle.halfX + radius
     && Math.abs(z - obstacle.z) < obstacle.halfZ + radius,
+  ) || (
+    Math.abs(x - car.x) < car.halfX + radius
+    && Math.abs(z - car.z) < car.halfZ + radius
   );
 }
 
@@ -297,23 +363,136 @@ function segmentIntersectsObstacle(
   return clip(startX, deltaX, minX, maxX) && clip(startZ, deltaZ, minZ, maxZ);
 }
 
-export function segmentHitsObstacle(startX: number, startZ: number, endX: number, endZ: number, radius = .06) {
-  return SOLID_OBSTACLES.some((obstacle) =>
+export function segmentHitsObstacle(
+  startX: number,
+  startZ: number,
+  endX: number,
+  endZ: number,
+  radius = .06,
+  vehicle: VehiclePose = STARTING_VEHICLE_POSITION,
+) {
+  return OBSTACLES.some((obstacle) =>
     segmentIntersectsObstacle(startX, startZ, endX, endZ, obstacle, radius),
-  );
+  ) || segmentIntersectsObstacle(startX, startZ, endX, endZ, vehicleBounds(vehicle), radius);
 }
 
-export function moveActor(x: number, z: number, dx: number, dz: number, radius = .28) {
+export function moveActor(
+  x: number,
+  z: number,
+  dx: number,
+  dz: number,
+  radius = .28,
+  vehicle: VehiclePose = STARTING_VEHICLE_POSITION,
+) {
   const target = clampToArena(x + dx, z + dz);
-  if (!hitsObstacle(target.x, target.z, radius)) return target;
+  if (!hitsObstacle(target.x, target.z, radius, vehicle)) return target;
   const slideX = clampToArena(x + dx, z);
   const slideZ = clampToArena(x, z + dz);
-  const allowX = !hitsObstacle(slideX.x, slideX.z, radius);
-  const allowZ = !hitsObstacle(slideZ.x, slideZ.z, radius);
+  const allowX = !hitsObstacle(slideX.x, slideX.z, radius, vehicle);
+  const allowZ = !hitsObstacle(slideZ.x, slideZ.z, radius, vehicle);
   if (allowX && allowZ) return Math.abs(dx) >= Math.abs(dz) ? slideX : slideZ;
   if (allowX) return slideX;
   if (allowZ) return slideZ;
   return { x, z };
+}
+
+function canPlaceVehicle(game: Engine, x: number, z: number, heading: number) {
+  const bounds = vehicleBounds({ x, z, heading });
+  const arenaClearance = Math.hypot(ARENA_CAR.halfX, ARENA_CAR.halfZ);
+  if (Math.hypot(x, z) > ARENA_LIMIT - arenaClearance) return false;
+  if (OBSTACLES.some((obstacle) =>
+    Math.abs(x - obstacle.x) < bounds.halfX + obstacle.halfX
+    && Math.abs(z - obstacle.z) < bounds.halfZ + obstacle.halfZ,
+  )) return false;
+  return !game.enemies.some((enemy) =>
+    Math.abs(x - enemy.x) < bounds.halfX + .24
+    && Math.abs(z - enemy.z) < bounds.halfZ + .24,
+  );
+}
+
+function getVehicleExitPosition(game: Engine) {
+  const vehicle = game.vehicle;
+  for (let radius = Math.max(ARENA_CAR.halfX, ARENA_CAR.halfZ) + .52; radius <= 3.7; radius += .18) {
+    for (let step = 0; step < 16; step += 1) {
+      const angle = (step / 16) * Math.PI * 2;
+      const desiredX = vehicle.x + Math.cos(angle) * radius;
+      const desiredZ = vehicle.z + Math.sin(angle) * radius;
+      if (Math.hypot(desiredX, desiredZ) > ARENA_LIMIT - .32) continue;
+      if (hitsObstacle(desiredX, desiredZ, .31, vehicle)) continue;
+      if (game.enemies.some((enemy) => Math.hypot(enemy.x - desiredX, enemy.z - desiredZ) < .62)) continue;
+      return { x: desiredX, z: desiredZ };
+    }
+  }
+  return null;
+}
+
+function interactWithVehicle(game: Engine, input: InputState) {
+  const interactDown = Boolean(input.keys.KeyF);
+  const pressed = interactDown && !game.vehicle.interactWasDown;
+  game.vehicle.interactWasDown = interactDown;
+  if (!pressed) return;
+
+  if (game.vehicle.driving) {
+    const exitPosition = getVehicleExitPosition(game);
+    if (!exitPosition) return;
+    game.vehicle.driving = false;
+    game.vehicle.speed = 0;
+    game.playerX = exitPosition.x;
+    game.playerZ = exitPosition.z;
+    game.playerVX = 0;
+    game.playerVZ = 0;
+  } else if (isNearVehicle(game.playerX, game.playerZ, game.vehicle)) {
+    game.vehicle.driving = true;
+    game.vehicle.speed = 0;
+    game.playerX = game.vehicle.x;
+    game.playerZ = game.vehicle.z;
+    game.playerVX = 0;
+    game.playerVZ = 0;
+    input.fire = false;
+  }
+}
+
+function driveVehicle(game: Engine, input: InputState, dt: number) {
+  const vehicle = game.vehicle;
+  const throttle = clamp(
+    (input.keys.KeyW || input.keys.ArrowUp ? 1 : 0)
+      - (input.keys.KeyS || input.keys.ArrowDown ? 1 : 0)
+      - input.touchZ,
+    -1,
+    1,
+  );
+  const steering = clamp(
+    (input.keys.KeyD || input.keys.ArrowRight ? 1 : 0)
+      - (input.keys.KeyA || input.keys.ArrowLeft ? 1 : 0)
+      + input.touchX,
+    -1,
+    1,
+  );
+  const maxSpeed = input.keys.ShiftLeft || input.keys.ShiftRight ? 5.4 : 4.2;
+  if (throttle !== 0) vehicle.speed = clamp(vehicle.speed + throttle * 8.5 * dt, -2.4, maxSpeed);
+  else vehicle.speed *= Math.exp(-2.1 * dt);
+  if (Math.abs(vehicle.speed) < .025) vehicle.speed = 0;
+
+  const turnRate = .42 + Math.min(1, Math.abs(vehicle.speed) / 2.8) * 1.15;
+  const reverseSign = vehicle.speed < -.08 ? -1 : 1;
+  const nextHeading = vehicle.heading - steering * turnRate * reverseSign * dt;
+  const nextX = vehicle.x - Math.sin(nextHeading) * vehicle.speed * dt;
+  const nextZ = vehicle.z - Math.cos(nextHeading) * vehicle.speed * dt;
+
+  if (canPlaceVehicle(game, nextX, nextZ, nextHeading)) {
+    vehicle.x = nextX;
+    vehicle.z = nextZ;
+    vehicle.heading = nextHeading;
+  } else {
+    if (canPlaceVehicle(game, vehicle.x, vehicle.z, nextHeading)) vehicle.heading = nextHeading;
+    vehicle.speed = 0;
+  }
+
+  game.playerX = vehicle.x;
+  game.playerZ = vehicle.z;
+  game.playerVX = -Math.sin(vehicle.heading) * vehicle.speed;
+  game.playerVZ = -Math.cos(vehicle.heading) * vehicle.speed;
+  game.playerSpeed = Math.min(1, Math.abs(vehicle.speed) / 5.4);
 }
 
 function pointSegmentDistance(px: number, pz: number, ax: number, az: number, bx: number, bz: number) {
@@ -434,7 +613,7 @@ function spawnSupplyPickup(game: Engine, kind: SupplyPickup['kind'], events: Ste
   for (let offset = 0; offset < anchors.length; offset += 1) {
     const [x, z] = anchors[(start + offset) % anchors.length];
     const position = clampToArena(x, z);
-    if (hitsObstacle(position.x, position.z, .5)
+    if (hitsObstacle(position.x, position.z, .5, game.vehicle)
       || game.pickups.some((pickup) => Math.hypot(pickup.x - x, pickup.z - z) < 1.2)) continue;
     game.pickups.push({ id: game.nextId++, kind, x: position.x, z: position.z, phase: Math.random() * Math.PI * 2 });
     events.pickupsChanged = true;
@@ -442,7 +621,7 @@ function spawnSupplyPickup(game: Engine, kind: SupplyPickup['kind'], events: Ste
   }
 }
 
-function steerEnemy(enemy: Enemy, playerX: number, playerZ: number, dt: number) {
+function steerEnemy(enemy: Enemy, playerX: number, playerZ: number, dt: number, vehicle: VehiclePose) {
   const dx = playerX - enemy.x;
   const dz = playerZ - enemy.z;
   const distance = Math.hypot(dx, dz) || 1;
@@ -456,7 +635,7 @@ function steerEnemy(enemy: Enemy, playerX: number, playerZ: number, dt: number) 
     const angle = baseAngle + offset;
     const dirX = Math.sin(angle);
     const dirZ = Math.cos(angle);
-    const candidate = moveActor(enemy.x, enemy.z, dirX * enemy.speed * dt, dirZ * enemy.speed * dt, .23);
+    const candidate = moveActor(enemy.x, enemy.z, dirX * enemy.speed * dt, dirZ * enemy.speed * dt, .23, vehicle);
     if (Math.hypot(candidate.x - enemy.x, candidate.z - enemy.z) < .001) continue;
     const progress = distance - Math.hypot(playerX - candidate.x, playerZ - candidate.z);
     const score = progress - Math.abs(offset) * .012;
@@ -499,7 +678,7 @@ function detonateGrenade(game: Engine, grenade: GrenadeProjectile, events: StepE
 function stepGrenades(game: Engine, dt: number, events: StepEvents) {
   for (let index = game.grenades.length - 1; index >= 0; index -= 1) {
     const grenade = game.grenades[index];
-    const next = moveActor(grenade.x, grenade.z, grenade.vx * dt, grenade.vz * dt, .11);
+    const next = moveActor(grenade.x, grenade.z, grenade.vx * dt, grenade.vz * dt, .11, game.vehicle);
     const blocked = Math.hypot(next.x - grenade.x, next.z - grenade.z) < Math.hypot(grenade.vx * dt, grenade.vz * dt) * .4;
     if (blocked) {
       grenade.vx *= -.46;
@@ -538,7 +717,7 @@ function stepBullets(game: Engine, dt: number, events: StepEvents) {
     bullet.life -= dt;
     let remove = bullet.life <= 0 || Math.hypot(bullet.x, bullet.z) > ARENA_LIMIT + .6;
 
-    if (!remove && segmentHitsObstacle(oldX, oldZ, bullet.x, bullet.z, .06)) {
+    if (!remove && segmentHitsObstacle(oldX, oldZ, bullet.x, bullet.z, .06, game.vehicle)) {
       spawnParticles(game, bullet.x, bullet.y, bullet.z, 5, ['#a9f5ff', '#58d9f1', '#879398'], 1.45, .04);
       remove = true;
     }
@@ -568,9 +747,9 @@ function stepDarts(game: Engine, dt: number, events: StepEvents) {
     dart.x += dart.vx * dt;
     dart.z += dart.vz * dt;
     dart.life -= dt;
-    const hitWall = hitsObstacle(dart.x, dart.z, .035);
+    const hitWall = hitsObstacle(dart.x, dart.z, .035, game.vehicle);
     const hitPlayer = pointSegmentDistance(game.playerX, game.playerZ, oldX, oldZ, dart.x, dart.z) < .48;
-    if (hitPlayer && !hitWall) {
+    if (hitPlayer && !hitWall && !game.vehicle.driving) {
       const damage = 13;
       const absorbed = Math.min(game.shield, damage);
       game.shield -= absorbed;
@@ -618,27 +797,32 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
   game.pickupTimer -= dt;
   game.grenadePickupTimer -= dt;
 
-  let moveX = (input.keys.KeyD || input.keys.ArrowRight ? 1 : 0)
-    - (input.keys.KeyA || input.keys.ArrowLeft ? 1 : 0) + input.touchX;
-  let moveZ = (input.keys.KeyS || input.keys.ArrowDown ? 1 : 0)
-    - (input.keys.KeyW || input.keys.ArrowUp ? 1 : 0) + input.touchZ;
-  const inputLength = Math.hypot(moveX, moveZ);
-  if (inputLength > 1) {
-    moveX /= inputLength;
-    moveZ /= inputLength;
+  interactWithVehicle(game, input);
+  if (game.vehicle.driving) {
+    driveVehicle(game, input, dt);
+  } else {
+    let moveX = (input.keys.KeyD || input.keys.ArrowRight ? 1 : 0)
+      - (input.keys.KeyA || input.keys.ArrowLeft ? 1 : 0) + input.touchX;
+    let moveZ = (input.keys.KeyS || input.keys.ArrowDown ? 1 : 0)
+      - (input.keys.KeyW || input.keys.ArrowUp ? 1 : 0) + input.touchZ;
+    const inputLength = Math.hypot(moveX, moveZ);
+    if (inputLength > 1) {
+      moveX /= inputLength;
+      moveZ /= inputLength;
+    }
+    const maxSpeed = input.keys.ShiftLeft || input.keys.ShiftRight ? 7.2 : 5.4;
+    const acceleration = inputLength > .01 ? 18 : 12;
+    game.playerVX += (moveX * maxSpeed - game.playerVX) * Math.min(1, dt * acceleration);
+    game.playerVZ += (moveZ * maxSpeed - game.playerVZ) * Math.min(1, dt * acceleration);
+    const targetX = game.playerX + game.playerVX * dt;
+    const targetZ = game.playerZ + game.playerVZ * dt;
+    const movedPlayer = moveActor(game.playerX, game.playerZ, game.playerVX * dt, game.playerVZ * dt, .31, game.vehicle);
+    if (Math.abs(movedPlayer.x - targetX) > .003) game.playerVX = 0;
+    if (Math.abs(movedPlayer.z - targetZ) > .003) game.playerVZ = 0;
+    game.playerX = movedPlayer.x;
+    game.playerZ = movedPlayer.z;
+    game.playerSpeed = Math.hypot(game.playerVX, game.playerVZ) / 7.2;
   }
-  const maxSpeed = input.keys.ShiftLeft || input.keys.ShiftRight ? 7.2 : 5.4;
-  const acceleration = inputLength > .01 ? 18 : 12;
-  game.playerVX += (moveX * maxSpeed - game.playerVX) * Math.min(1, dt * acceleration);
-  game.playerVZ += (moveZ * maxSpeed - game.playerVZ) * Math.min(1, dt * acceleration);
-  const targetX = game.playerX + game.playerVX * dt;
-  const targetZ = game.playerZ + game.playerVZ * dt;
-  const movedPlayer = moveActor(game.playerX, game.playerZ, game.playerVX * dt, game.playerVZ * dt, .31);
-  if (Math.abs(movedPlayer.x - targetX) > .003) game.playerVX = 0;
-  if (Math.abs(movedPlayer.z - targetZ) > .003) game.playerVZ = 0;
-  game.playerX = movedPlayer.x;
-  game.playerZ = movedPlayer.z;
-  game.playerSpeed = Math.hypot(game.playerVX, game.playerVZ) / 7.2;
 
   if (game.bossWavePending && game.enemies.length === 0) {
     spawnMiniBoss(game, events);
@@ -650,7 +834,7 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
     game.spawnTimer = Math.max(.32, 1.08 - game.wave * .045) * (.78 + Math.random() * .38);
   }
 
-  if (input.keys.KeyR && game.reloadTimer <= 0 && game.ammo < MAGAZINE_SIZE && game.reserveAmmo > 0) {
+  if (!game.vehicle.driving && input.keys.KeyR && game.reloadTimer <= 0 && game.ammo < MAGAZINE_SIZE && game.reserveAmmo > 0) {
     game.reloadDuration = 1.18;
     game.reloadTimer = game.reloadDuration;
   }
@@ -666,7 +850,7 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
 
   const grenadePressed = input.keys.KeyG && !game.grenadeWasDown;
   game.grenadeWasDown = input.keys.KeyG;
-  if (grenadePressed && game.grenadeCount > 0 && game.grenadeCooldown <= 0) {
+  if (!game.vehicle.driving && grenadePressed && game.grenadeCount > 0 && game.grenadeCooldown <= 0) {
     const dx = input.aimX - game.playerX;
     const dz = input.aimZ - game.playerZ;
     const distance = Math.hypot(dx, dz) || 1;
@@ -687,7 +871,7 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
     events.grenadesChanged = true;
   }
 
-  if ((input.fire || input.keys.Space) && game.fireTimer <= 0 && game.reloadTimer <= 0 && game.ammo > 0) {
+  if (!game.vehicle.driving && (input.fire || input.keys.Space) && game.fireTimer <= 0 && game.reloadTimer <= 0 && game.ammo > 0) {
     const dx = input.aimX - game.playerX;
     const dz = input.aimZ - game.playerZ;
     const distance = Math.hypot(dx, dz) || 1;
@@ -719,7 +903,7 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
     enemy.phase += dt * (3.1 + enemy.speed);
 
     if (enemy.stagger > 0) {
-      const pushed = moveActor(enemy.x, enemy.z, enemy.vx * dt, enemy.vz * dt, .23);
+      const pushed = moveActor(enemy.x, enemy.z, enemy.vx * dt, enemy.vz * dt, .23, game.vehicle);
       enemy.x = pushed.x;
       enemy.z = pushed.z;
       enemy.vx *= Math.pow(.035, dt);
@@ -743,7 +927,7 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
       if (distance > 5.3) { moveX += dirX; moveZ += dirZ; }
       if (distance < 3.5) { moveX -= dirX * .8; moveZ -= dirZ * .8; }
       const moveLength = Math.hypot(moveX, moveZ) || 1;
-      const moved = moveActor(enemy.x, enemy.z, moveX / moveLength * enemy.speed * dt, moveZ / moveLength * enemy.speed * dt, .42);
+      const moved = moveActor(enemy.x, enemy.z, moveX / moveLength * enemy.speed * dt, moveZ / moveLength * enemy.speed * dt, .42, game.vehicle);
       enemy.x = moved.x;
       enemy.z = moved.z;
 
@@ -768,11 +952,11 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
       continue;
     }
 
-    const steer = steerEnemy(enemy, game.playerX, game.playerZ, dt);
+    const steer = steerEnemy(enemy, game.playerX, game.playerZ, dt, game.vehicle);
     enemy.facingX = steer.x;
     enemy.facingZ = steer.z;
     if (steer.distance > .78) {
-      const position = moveActor(enemy.x, enemy.z, steer.x * enemy.speed * dt, steer.z * enemy.speed * dt, .23);
+      const position = moveActor(enemy.x, enemy.z, steer.x * enemy.speed * dt, steer.z * enemy.speed * dt, .23, game.vehicle);
       enemy.x = position.x;
       enemy.z = position.z;
       enemy.moveBlend = Math.min(1, enemy.moveBlend + dt * 4);
@@ -781,13 +965,15 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
       if (enemy.attackCooldown <= 0) {
         enemy.attackCooldown = 1.02;
         enemy.attackPulse = .42;
-        const damage = 8.5 + game.wave * .45;
-        const absorbed = Math.min(game.shield, damage);
-        game.shield -= absorbed;
-        game.health -= damage - absorbed;
-        game.shieldDelay = 3.4;
-        game.damageFlash = .72;
-        game.cameraShake = Math.max(game.cameraShake, .13);
+        if (!game.vehicle.driving) {
+          const damage = 8.5 + game.wave * .45;
+          const absorbed = Math.min(game.shield, damage);
+          game.shield -= absorbed;
+          game.health -= damage - absorbed;
+          game.shieldDelay = 3.4;
+          game.damageFlash = .72;
+          game.cameraShake = Math.max(game.cameraShake, .13);
+        }
       }
     }
   }
