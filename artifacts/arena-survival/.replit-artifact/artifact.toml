@@ -1,7 +1,7 @@
 kind = "web"
 previewPath = "/"
 title = "Arena Survival"
-description = "A fast-paced 3D arena survival game built with Three.js. Move, aim, and fight increasingly dangerous enemy waves while tracking health and score."
+description = "A third-person 3D action RPG: fight through five themed arenas with waves, bosses, hazards, character levels, perks and a between-level shop."
 version = "1.0.0"
 id = "artifacts/arena-survival"
 router = "path"
