@@ -55,7 +55,7 @@ export function MiniBossCharacter({ enemy }: { enemy: Enemy }) {
         <meshBasicMaterial color="#e8a843" transparent opacity={.82} side={THREE.DoubleSide} />
       </mesh>
       <pointLight position={[0, 1.2, 0]} color="#e8a843" intensity={.8} distance={3.8} />
-      <group ref={bodyRef} scale={1.15}>
+      <group ref={bodyRef} scale={enemy.scale * 1.15}>
         <primitive object={model} />
       </group>
       <group position={[0, 2.3, 0]}>

@@ -477,7 +477,10 @@ export function SleeperCharacter({
     if (rootRef.current) {
       heading.current = dying ? heading.current : dampAngle(heading.current, Math.atan2(enemy.facingX, enemy.facingZ), 10, dt);
       const sink = dying ? Math.max(0, enemy.death - (isBoss ? 2.2 : 1.1)) * .7 : 0;
-      rootRef.current.position.set(enemy.x, -Math.pow(spawnT, 1.4) * 2.1 * enemy.scale - sink, enemy.z);
+      const spawnSink = Math.pow(spawnT, 1.4) * .65 * Math.min(enemy.scale, 1.4);
+      const rootY = .02 - spawnSink - sink;
+      rootRef.current.position.set(enemy.x, rootY, enemy.z);
+      if (portalRef.current) portalRef.current.position.y = .03 - rootY;
       rootRef.current.rotation.y = heading.current;
       const pulse = 1 + enemy.hitFlash * .25;
       rootRef.current.scale.set(enemy.scale * (2 - pulse * 1), enemy.scale * pulse, enemy.scale * (2 - pulse * 1));

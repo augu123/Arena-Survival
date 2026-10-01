@@ -57,7 +57,7 @@ function AbilitySlot({ keyLabel, name, cooldown, ready, count, onTrigger }: {
       onPointerDown={(event) => { event.stopPropagation(); onTrigger(); }}
     >
       <span className="ability-sweep" aria-hidden="true" />
-      <b>{keyLabel}</b>
+      <b className={keyLabel.length > 1 ? 'long-key-label' : undefined}>{keyLabel}</b>
       <span className="ability-name">{name}</span>
       {count !== undefined && <i className="ability-count">{count}</i>}
     </button>
@@ -309,7 +309,7 @@ function GameHome() {
                   <span className="survival-readout">TIME <b data-testid="timer-stat">{formatTime(hud.survival)}</b></span>
                 </div>
                 <div className="ability-bar">
-                  <AbilitySlot keyLabel="Q" name="Dash" cooldown={hud.abilities.dash.cooldown} ready={hud.abilities.dash.ready} onTrigger={() => triggerAction('KeyQ')} />
+                  <AbilitySlot keyLabel="SPACE" name="Dash" cooldown={hud.abilities.dash.cooldown} ready={hud.abilities.dash.ready} onTrigger={() => triggerAction('KeyQ')} />
                   <AbilitySlot keyLabel="E" name="Nova" cooldown={hud.abilities.nova.cooldown} ready={hud.abilities.nova.ready} onTrigger={() => triggerAction('KeyE')} />
                   <AbilitySlot keyLabel="F" name={hud.nearVehicle ? hud.playerDriving ? 'Exit' : 'Enter' : 'Strike'} cooldown={hud.nearVehicle ? 0 : hud.abilities.melee.cooldown} ready={hud.nearVehicle || hud.abilities.melee.ready} onTrigger={() => triggerAction('KeyF')} />
                   <AbilitySlot keyLabel="G" name="Frag" cooldown={hud.abilities.grenade.cooldown} ready={hud.abilities.grenade.ready} count={hud.grenades} onTrigger={() => triggerAction('KeyG')} />
@@ -377,7 +377,7 @@ function GameHome() {
                 <span><b className="keycap">WASD</b> Move</span>
                 <span><b className="keycap">MOUSE</b> Look / fire</span>
                 <span><b className="keycap">SHIFT</b> Sprint</span>
-                <span><b className="keycap">Q</b> Dash</span>
+                <span><b className="keycap">Q / SPACE</b> Dash</span>
                 <span><b className="keycap">E</b> Nova</span>
                 <span><b className="keycap">F</b> Strike</span>
                 <span><b className="keycap">G</b> Frag</span>

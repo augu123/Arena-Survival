@@ -8,6 +8,7 @@ import { OPTIONAL_REAL_CONCRETE_TEXTURE_URLS, REAL_WOOD_TEXTURE_URLS, upgradeMat
 import { LEVELS, type Hazard, type LevelDef } from './game-levels';
 import {
   ARENA_CAR,
+  DASH_DURATION,
   currentLevel,
   stepGame,
   toHud,
@@ -749,7 +750,7 @@ function SceneEntities(props: SceneProps & { level: LevelDef }) {
       firePulse: game.firePulse,
       reloadBlend: game.reloadDuration > 0 ? 1 - game.reloadTimer / game.reloadDuration : 0,
       damagePulse: game.damageFlash,
-      dash: game.dashTimer > 0 ? 1 - game.dashTimer / .26 : 0,
+      dash: game.dashTimer > 0 ? 1 - game.dashTimer / DASH_DURATION : 0,
       melee: game.meleeTimer > 0 ? 1 - game.meleeTimer / .38 : 0,
       cast: Math.min(1, game.castTimer * 3),
       dying: game.dying,

@@ -262,6 +262,7 @@ button { font: inherit; }
 .ability-bar { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); display: flex; gap: .45rem; }
 .ability-slot { position: relative; width: 62px; height: 62px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .15rem; border: 1px solid rgba(184,215,230,.35); background: rgba(10,18,27,.8); color: hsl(var(--foreground)); cursor: pointer; overflow: hidden; }
 .ability-slot b { position: relative; z-index: 1; font: 800 1.2rem/1 var(--app-font-display); color: var(--level-accent); }
+.ability-slot b.long-key-label { font-size: .68rem; letter-spacing: .025em; }
 .ability-slot .ability-name { position: relative; z-index: 1; font-size: .42rem; letter-spacing: .14em; text-transform: uppercase; color: rgba(205,226,235,.7); }
 .ability-sweep { position: absolute; inset: 0; background: conic-gradient(rgba(3,8,12,.78) var(--cooldown), transparent 0); }
 .ability-slot.is-ready { border-color: var(--level-accent); box-shadow: inset 0 0 14px rgba(93,209,242,.14), 0 0 12px rgba(93,209,242,.12); }

@@ -14,6 +14,9 @@ import {
 
 export type GameStatus = 'menu' | 'playing' | 'paused' | 'levelup' | 'shop' | 'gameover' | 'victory';
 
+export const DASH_DURATION = .24;
+export const DASH_SPEED = 12;
+
 export type InputState = {
   keys: Record<string, boolean>;
   fire: boolean;
@@ -153,6 +156,8 @@ export type Engine = {
   dashCooldown: number;
   dashDirX: number;
   dashDirZ: number;
+  lastMoveX: number;
+  lastMoveZ: number;
   invulnerable: number;
   meleeTimer: number;
   meleeCooldown: number;
@@ -335,14 +340,20 @@ function blankLevelState(game: Engine) {
   game.vehicle.heading = ARENA_CAR.rotationY;
   game.vehicle.speed = 0;
   game.vehicle.driving = false;
-  const spawn = findFreeSpot(game, 0, 4.5);
+  // Keep the player beside, not directly behind, the parked car so the car is
+  // visible and the opening movement input cannot run into its bumper.
+  const spawn = findFreeSpot(game, 1.25, 4.5);
   game.playerX = spawn.x;
   game.playerZ = spawn.z;
   game.playerVX = 0;
   game.playerVZ = 0;
+  game.lastMoveX = 0;
+  game.lastMoveZ = 0;
   game.facing = Math.PI;
   game.dashTimer = 0;
   game.dashCooldown = 0;
+  game.dashDirX = 0;
+  game.dashDirZ = -1;
   game.invulnerable = 0;
   game.meleeTimer = 0;
   game.meleeCooldown = 0;
@@ -384,6 +395,8 @@ export const freshEngine = (): Engine => {
     fireTimer: 0,
     dashDirX: 0,
     dashDirZ: -1,
+    lastMoveX: 0,
+    lastMoveZ: 0,
     novaCooldown: 0,
     grenadeCount: 3,
     grenadeCooldown: 0,
@@ -936,8 +949,38 @@ function findSpawnPoint(game: Engine, minPlayerDistance: number, clearance = .6)
   return findFreeSpot(game, Math.cos(angle) * (level.radius - 2.5), Math.sin(angle) * (level.radius - 2.5), clearance);
 }
 
+function findVisibleBossSpawnPoint(game: Engine, minPlayerDistance: number, clearance: number) {
+  const level = currentLevel(game);
+  const maxDistance = Math.min(minPlayerDistance + 1.4, level.radius - clearance - .5);
+  const distances = [
+    maxDistance,
+    Math.max(minPlayerDistance, maxDistance - .7),
+    Math.max(minPlayerDistance, maxDistance - 1.4),
+  ];
+  const angleOffsets = [0, -.22, .22, -.42, .42, -.62, .62];
+
+  for (const offset of angleOffsets) {
+    const yaw = game.cameraYaw + offset;
+    for (const distance of distances) {
+      const x = game.playerX - Math.sin(yaw) * distance;
+      const z = game.playerZ - Math.cos(yaw) * distance;
+      if (Math.hypot(x, z) > level.radius - clearance) continue;
+      if (hitsObstacle(level.obstacles, x, z, clearance) || hitsVehicle(game, x, z, clearance)) continue;
+      return { x, z };
+    }
+  }
+
+  return findSpawnPoint(game, minPlayerDistance, clearance);
+}
+
 function spawnEnemy(game: Engine, kind: EnemyKind, events: StepEvents, near?: { x: number; z: number }) {
-  const point = near ?? findSpawnPoint(game, kind === 'boss' ? 7 : 5.5, ENEMY_STATS[kind].radius * 1.2 + .15);
+  const minPlayerDistance = kind === 'boss' ? 7 : 5.5;
+  const clearance = ENEMY_STATS[kind].radius * 1.2 + .15;
+  const point = near ?? (
+    kind === 'boss' || kind === 'teowerine'
+      ? findVisibleBossSpawnPoint(game, minPlayerDistance, clearance)
+      : findSpawnPoint(game, minPlayerDistance, clearance)
+  );
   const enemy = makeEnemy(game, kind, point.x, point.z);
   game.enemies.push(enemy);
   spawnParticles(game, point.x, .1, point.z, kind === 'boss' ? 40 : 10, ['#2a3134', '#545d60', currentLevel(game).theme.accent], 2.2, .09, 1.2);
@@ -1700,6 +1743,11 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
   // forward = (-sin, -cos), right = (cos, -sin)
   const moveX = inputX * cos + inputZ * sin;
   const moveZ = -inputX * sin + inputZ * cos;
+  const moveLength = Math.hypot(moveX, moveZ);
+  if (alive && !game.vehicle.driving && moveLength > .1) {
+    game.lastMoveX = moveX / moveLength;
+    game.lastMoveZ = moveZ / moveLength;
+  }
   const sprinting = !game.vehicle.driving && Boolean(keys.ShiftLeft || keys.ShiftRight) && inputLength > .1 && game.energy > 2;
   if (sprinting) game.energy = Math.max(0, game.energy - 7 * dt);
   const maxSpeed = (sprinting ? 7.4 : 5.4) * game.stats.moveMult * hazardSlow * (game.castTimer > 0 ? .5 : 1);
@@ -1713,10 +1761,18 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
     game.playerSpeed = 0;
   } else {
     if (alive && pressed('KeyQ', 'Space') && game.dashCooldown <= 0 && game.energy >= dashCost(game)) {
-      const length = Math.hypot(moveX, moveZ);
-      game.dashDirX = length > .1 ? moveX / length : -sin;
-      game.dashDirZ = length > .1 ? moveZ / length : -cos;
-      game.dashTimer = .26;
+      const rememberedMoveLength = Math.hypot(game.lastMoveX, game.lastMoveZ);
+      game.dashDirX = moveLength > .1
+        ? moveX / moveLength
+        : rememberedMoveLength > .1
+          ? game.lastMoveX / rememberedMoveLength
+          : -sin;
+      game.dashDirZ = moveLength > .1
+        ? moveZ / moveLength
+        : rememberedMoveLength > .1
+          ? game.lastMoveZ / rememberedMoveLength
+          : -cos;
+      game.dashTimer = DASH_DURATION;
       game.invulnerable = .34;
       game.dashCooldown = .95 - game.stats.dashLevel * .15;
       game.energy -= dashCost(game);
@@ -1724,11 +1780,11 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
     }
 
     if (game.dashTimer > 0) {
-      game.playerVX = game.dashDirX * 17;
-      game.playerVZ = game.dashDirZ * 17;
+      game.playerVX = game.dashDirX * DASH_SPEED;
+      game.playerVZ = game.dashDirZ * DASH_SPEED;
       if (Math.random() < .6) spawnParticles(game, game.playerX, .5 + Math.random(), game.playerZ, 1, ['#8ef1ff', '#bdf8ff'], .3, .06, .2);
     } else {
-      const acceleration = (inputLength > .01 ? 16 : 11) * level.friction;
+      const acceleration = (inputLength > .01 ? 16 : 24) * level.friction;
       const blend = Math.min(1, dt * acceleration);
       game.playerVX += (moveX * maxSpeed - game.playerVX) * blend;
       game.playerVZ += (moveZ * maxSpeed - game.playerVZ) * blend;
