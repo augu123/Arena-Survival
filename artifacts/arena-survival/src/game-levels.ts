@@ -47,6 +47,7 @@ export type LevelDef = {
   theme: LevelTheme;
   obstacles: Obstacle[];
   hazards: Hazard[];
+  roundZeroMiniBoss?: 'teowerine';
   waves: Wave[];
   boss: BossSpec;
 };
@@ -80,11 +81,11 @@ export const LEVELS: LevelDef[] = [
       { x: 8, z: 0, halfX: .45, halfZ: .45, kind: 'crate' },
     ],
     hazards: [],
+    roundZeroMiniBoss: 'teowerine',
     waves: [
       { count: 8, mix: { walker: 1 }, concurrent: 6 },
       { count: 12, mix: { walker: 3, runner: 1 }, concurrent: 8 },
       { count: 16, mix: { walker: 2, runner: 2 }, concurrent: 10 },
-      { count: 1, mix: { teowerine: 1 }, concurrent: 1 },
     ],
     boss: { name: 'The Warden', title: 'Keeper of the Ring', health: 700, speed: 1.35, slamEvery: 6.5, volley: 0, summonAt: 0, tint: '#3bc9ed' },
   },

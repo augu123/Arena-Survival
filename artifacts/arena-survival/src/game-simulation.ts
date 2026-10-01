@@ -11,6 +11,7 @@ import {
   type PerkId,
   type ShopItemId,
 } from './game-levels';
+import { TEOWERINE_DANCE_DURATION } from './teowerine-animation';
 
 export type GameStatus = 'menu' | 'playing' | 'paused' | 'levelup' | 'shop' | 'gameover' | 'victory';
 
@@ -92,6 +93,12 @@ export type Enemy = {
   summonStage: number;
   /** Seconds since death; only used once the enemy becomes a corpse. */
   death: number;
+  /** Seconds left in a Teowerine dance; damage is ignored while this is positive. */
+  danceTimer: number;
+  /** Incremented whenever Teowerine starts another dance animation. */
+  danceSequence: number;
+  /** The half-health dance can only trigger once. */
+  halfHealthDanceTriggered: boolean;
 };
 
 export type Bullet = { id: number; x: number; y: number; z: number; vx: number; vz: number; life: number; damage: number; crit: boolean; pierce: number; hits: number[] };
@@ -124,7 +131,7 @@ export type PlayerStats = {
   meleeMult: number;
 };
 
-export type LevelPhase = 'intro' | 'wave' | 'intermission' | 'bossIntro' | 'boss' | 'cleared';
+export type LevelPhase = 'intro' | 'round0' | 'round0Intermission' | 'wave' | 'intermission' | 'bossIntro' | 'boss' | 'cleared';
 export type Banner = { id: number; title: string; sub: string; tone: 'info' | 'boss' | 'level' | 'good' };
 
 export type Engine = {
@@ -805,6 +812,8 @@ function objectiveText(game: Engine) {
   const level = currentLevel(game);
   switch (game.phase) {
     case 'intro': return 'Get ready';
+    case 'round0': return 'Round 0 // Teowerine is performing';
+    case 'round0Intermission': return 'Round 0 cleared // Wave 1 incoming';
     case 'wave': {
       const wave = level.waves[game.waveIndex];
       const remaining = wave.count - game.waveSpawned + game.enemies.length;
@@ -854,7 +863,7 @@ export const toHud = (game: Engine): HudStats => {
     enemies: game.enemies.length,
     objective: objectiveText(game),
     boss: boss ? { name: level.boss.name, title: level.boss.title, health: boss.health, maxHealth: boss.maxHealth } : null,
-    miniBoss: miniBoss ? { name: 'Teowerine', title: 'Mini-boss // Wave encounter', health: miniBoss.health, maxHealth: miniBoss.maxHealth } : null,
+    miniBoss: miniBoss ? { name: 'Teowerine', title: 'Round 0 // Opening encounter', health: miniBoss.health, maxHealth: miniBoss.maxHealth } : null,
     nearVehicle: game.vehicle.driving || isNearVehicle(game.playerX, game.playerZ, game.vehicle),
     playerDriving: game.vehicle.driving,
     // Rotate into camera space so "up" on the radar is always where you're looking.
@@ -931,6 +940,9 @@ function makeEnemy(game: Engine, kind: EnemyKind, x: number, z: number): Enemy {
     volleyTimer: 3.5,
     summonStage: 0,
     death: 0,
+    danceTimer: kind === 'teowerine' ? TEOWERINE_DANCE_DURATION : 0,
+    danceSequence: kind === 'teowerine' ? 1 : 0,
+    halfHealthDanceTriggered: false,
   };
 }
 
@@ -1073,11 +1085,22 @@ function killEnemy(game: Engine, index: number, events: StepEvents) {
 }
 
 function damageEnemy(game: Engine, enemy: Enemy, amount: number, impulseX: number, impulseZ: number, crit: boolean, events: StepEvents) {
+  if (enemy.kind === 'teowerine' && enemy.danceTimer > 0) return;
   if (enemy.spawn > .35) amount *= .5;
   enemy.health -= amount;
   enemy.hitFlash = .16;
   const isBoss = enemy.kind === 'boss';
   const isMiniBoss = enemy.kind === 'teowerine';
+  if (
+    isMiniBoss
+    && !enemy.halfHealthDanceTriggered
+    && enemy.health > 0
+    && enemy.health <= enemy.maxHealth * .5
+  ) {
+    enemy.halfHealthDanceTriggered = true;
+    enemy.danceSequence += 1;
+    enemy.danceTimer = TEOWERINE_DANCE_DURATION;
+  }
   const resist = isBoss ? .12 : isMiniBoss ? .55 : enemy.kind === 'brute' ? .45 : 1;
   enemy.stagger = Math.max(enemy.stagger, (isBoss ? .05 : isMiniBoss ? .12 : .2) * resist + (crit ? .05 : 0));
   enemy.vx += impulseX * resist;
@@ -1419,6 +1442,18 @@ function stepEnemies(game: Engine, dt: number, events: StepEvents) {
     const dz = game.playerZ - enemy.z;
     const distance = Math.hypot(dx, dz);
 
+    if (enemy.kind === 'teowerine' && enemy.danceTimer > 0) {
+      enemy.spawn = Math.max(0, enemy.spawn - dt);
+      enemy.vx = 0;
+      enemy.vz = 0;
+      enemy.moveBlend = 0;
+      enemy.stagger = 0;
+      enemy.attackPulse = 0;
+      enemy.facingX = dx;
+      enemy.facingZ = dz;
+      continue;
+    }
+
     if (enemy.spawn > 0) {
       enemy.spawn = Math.max(0, enemy.spawn - dt);
       enemy.facingX = dx;
@@ -1432,6 +1467,7 @@ function stepEnemies(game: Engine, dt: number, events: StepEvents) {
       if (Math.hypot(enemy.x - hazard.x, enemy.z - hazard.z) > hazard.radius) continue;
       if (hazard.kind === 'toxic') hazardSlow = .6;
       else if (ventState(hazard, game.time).state === 'active') {
+        if (enemy.kind === 'teowerine' && enemy.danceTimer > 0) continue;
         enemy.health -= 55 * dt;
         enemy.hitFlash = .1;
         if (enemy.health <= 0) {
@@ -1533,10 +1569,35 @@ function stepLevelFlow(game: Engine, dt: number, events: StepEvents) {
   switch (game.phase) {
     case 'intro':
       if (game.phaseTimer <= 0) {
+        if (level.roundZeroMiniBoss) {
+          game.phase = 'round0';
+          game.waveIndex = 0;
+          game.waveSpawned = 0;
+          game.spawnTimer = 0;
+          spawnEnemy(game, level.roundZeroMiniBoss, events);
+          setBanner(game, 'ROUND 0 // TEOWERINE', 'The opening act begins', 'boss');
+        } else {
+          game.phase = 'wave';
+          game.waveIndex = 0;
+          game.waveSpawned = 0;
+          setBanner(game, `Wave 1 / ${level.waves.length}`, level.briefing, 'info');
+        }
+      }
+      break;
+    case 'round0':
+      if (!game.enemies.some((enemy) => enemy.kind === 'teowerine')) {
+        game.phase = 'round0Intermission';
+        game.phaseTimer = 3.5;
+        setBanner(game, 'Round 0 cleared', 'Wave 1 incoming', 'good');
+      }
+      break;
+    case 'round0Intermission':
+      if (game.phaseTimer <= 0) {
         game.phase = 'wave';
         game.waveIndex = 0;
         game.waveSpawned = 0;
-        setBanner(game, `Wave 1 / ${level.waves.length}`, level.briefing, 'info');
+        game.spawnTimer = 0;
+        setBanner(game, `Wave 1 / ${level.waves.length}`, 'The sleepers are waking up', 'info');
       }
       break;
     case 'wave': {
@@ -1737,6 +1798,11 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
   game.meleeTimer = Math.max(0, game.meleeTimer - dt);
   game.novaCooldown = Math.max(0, game.novaCooldown - dt);
   game.castTimer = Math.max(0, game.castTimer - dt);
+  for (const enemy of game.enemies) {
+    if (enemy.kind === 'teowerine' && enemy.danceTimer > 0) {
+      enemy.danceTimer = Math.max(0, enemy.danceTimer - dt);
+    }
+  }
 
   const alive = game.dying <= 0;
   const vehicleInteraction = alive && interactWithVehicle(game, input);

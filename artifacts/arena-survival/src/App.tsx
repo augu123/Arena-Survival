@@ -270,7 +270,7 @@ function GameHome() {
                       <div className="objective-text" data-testid="objective">{hud.objective}</div>
                       <div className="wave-pips">
                         {Array.from({ length: hud.waveCount }, (_, index) => (
-                          <i key={index} className={index < hud.waveIndex || (hud.phase !== 'wave' && hud.phase !== 'intro' && hud.phase !== 'intermission') ? 'done' : index === hud.waveIndex && hud.phase === 'wave' ? 'live' : ''} />
+                          <i key={index} className={index < hud.waveIndex || (hud.phase !== 'wave' && hud.phase !== 'intro' && hud.phase !== 'intermission' && hud.phase !== 'round0' && hud.phase !== 'round0Intermission') ? 'done' : index === hud.waveIndex && hud.phase === 'wave' ? 'live' : ''} />
                         ))}
                         <i className={`boss-pip ${hud.phase === 'boss' || hud.phase === 'bossIntro' ? 'live' : hud.phase === 'cleared' ? 'done' : ''}`} />
                       </div>
