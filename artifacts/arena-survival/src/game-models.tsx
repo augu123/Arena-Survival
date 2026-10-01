@@ -72,6 +72,8 @@ const MAT = {
   groundShadow: new THREE.MeshBasicMaterial({ color: '#03080b', transparent: true, opacity: .32, depthWrite: false }),
   acid: new THREE.MeshBasicMaterial({ color: '#a4ff7a', toneMapped: false }),
   acidGlow: new THREE.MeshBasicMaterial({ color: '#56e04a', transparent: true, opacity: .35, depthWrite: false, toneMapped: false }),
+  fire: new THREE.MeshStandardMaterial({ color: '#ff7130', emissive: '#ef3d0c', emissiveIntensity: 2.1, roughness: .32 }),
+  fireGlow: new THREE.MeshBasicMaterial({ color: '#ffb04a', transparent: true, opacity: .52, depthWrite: false, toneMapped: false }),
   gold: new THREE.MeshStandardMaterial({ color: '#ffcf4a', emissive: '#c98a12', emissiveIntensity: .9, metalness: .9, roughness: .25 }),
   heal: new THREE.MeshBasicMaterial({ color: '#7dff96', toneMapped: false }),
   energy: new THREE.MeshBasicMaterial({ color: '#c9a2ff', toneMapped: false }),
@@ -658,6 +660,9 @@ export function BulletMesh({ bullet }: { bullet: Bullet }) {
 
 export function HostileShotMesh({ shot }: { shot: HostileShot }) {
   const ref = useRef<THREE.Group>(null);
+  const fire = shot.kind === 'fire';
+  const coreMaterial = fire ? MAT.fire : MAT.acid;
+  const glowMaterial = fire ? MAT.fireGlow : MAT.acidGlow;
   useFrame(({ clock }) => {
     if (!ref.current) return;
     ref.current.position.set(shot.x, shot.y + Math.sin(clock.elapsedTime * 14 + shot.id) * .04, shot.z);
@@ -665,9 +670,9 @@ export function HostileShotMesh({ shot }: { shot: HostileShot }) {
   });
   return (
     <group ref={ref} dispose={null}>
-      <Part geometry={GEO.lowSphere} material={MAT.acid} scale={[.14, .14, .2]} />
-      <Part geometry={GEO.lowSphere} material={MAT.acidGlow} scale={[.3, .3, .38]} />
-      <Part geometry={GEO.lowSphere} material={MAT.acidGlow} position={[0, 0, -.35]} scale={[.12, .12, .24]} />
+      <Part geometry={GEO.lowSphere} material={coreMaterial} scale={fire ? [.18, .18, .24] : [.14, .14, .2]} />
+      <Part geometry={GEO.lowSphere} material={glowMaterial} scale={fire ? [.36, .36, .44] : [.3, .3, .38]} />
+      <Part geometry={GEO.lowSphere} material={glowMaterial} position={[0, 0, fire ? -.42 : -.35]} scale={fire ? [.16, .16, .3] : [.12, .12, .24]} />
     </group>
   );
 }
@@ -694,6 +699,7 @@ const EXPLOSION_COLORS: Record<Explosion['kind'], { ring: string; core: string }
   nova: { ring: '#8ef1ff', core: '#d9b8ff' },
   slam: { ring: '#ff5a4f', core: '#ffb09a' },
   acid: { ring: '#8dff6a', core: '#d6ffbf' },
+  fire: { ring: '#ff7130', core: '#fff0a3' },
   levelup: { ring: '#ffd45e', core: '#fff2b0' },
   melee: { ring: '#d8fbff', core: '#ffffff' },
 };

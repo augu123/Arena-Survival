@@ -491,7 +491,7 @@ function FlashLight({ engineRef }: { engineRef: MutableRefObject<Engine> }) {
     }
     const fade = latest.life / latest.duration;
     light.position.set(latest.x, 1.2, latest.z);
-    light.color.set(latest.kind === 'frag' ? '#ff9a4a' : latest.kind === 'nova' ? '#8ef1ff' : latest.kind === 'levelup' ? '#ffd45e' : '#ff5a4f');
+    light.color.set(latest.kind === 'frag' ? '#ff9a4a' : latest.kind === 'fire' ? '#ff7c39' : latest.kind === 'nova' ? '#8ef1ff' : latest.kind === 'levelup' ? '#ffd45e' : '#ff5a4f');
     light.intensity = fade * 30;
   });
   return <pointLight ref={ref} intensity={0} distance={9} decay={2} />;
@@ -1001,7 +1001,7 @@ function FallbackScene(props: SceneProps) {
         const progress = 1 - explosion.life / explosion.duration;
         ctx.beginPath();
         ctx.arc(sx(explosion.x), sy(explosion.z), Math.max(1, explosion.radius * progress * scale), 0, Math.PI * 2);
-        ctx.strokeStyle = explosion.kind === 'frag' ? '#ff9a4a' : explosion.kind === 'slam' ? '#ff5a4f' : explosion.kind === 'acid' ? '#8dff6a' : '#8ef1ff';
+        ctx.strokeStyle = explosion.kind === 'frag' ? '#ff9a4a' : explosion.kind === 'fire' ? '#ff7c39' : explosion.kind === 'slam' ? '#ff5a4f' : explosion.kind === 'acid' ? '#8dff6a' : '#8ef1ff';
         ctx.lineWidth = 3;
         ctx.stroke();
       }
@@ -1049,7 +1049,7 @@ function FallbackScene(props: SceneProps) {
       for (const shot of game.hostileShots) {
         ctx.beginPath();
         ctx.arc(sx(shot.x), sy(shot.z), 4, 0, Math.PI * 2);
-        ctx.fillStyle = '#a4ff7a';
+        ctx.fillStyle = shot.kind === 'fire' ? '#ff8a32' : '#a4ff7a';
         ctx.fill();
       }
       for (const bullet of game.bullets) {

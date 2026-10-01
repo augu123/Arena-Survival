@@ -11,7 +11,12 @@ import {
   type PerkId,
   type ShopItemId,
 } from './game-levels';
-import { TEOWERINE_DANCE_DURATION } from './teowerine-animation';
+import {
+  TEOWERINE_CAST_DURATION,
+  TEOWERINE_CAST_RANGE,
+  TEOWERINE_CAST_RELEASE_DELAY,
+  TEOWERINE_DANCE_DURATION,
+} from './teowerine-animation';
 
 export type GameStatus = 'menu' | 'playing' | 'paused' | 'levelup' | 'shop' | 'gameover' | 'victory';
 
@@ -99,12 +104,18 @@ export type Enemy = {
   danceSequence: number;
   /** The half-health dance can only trigger once. */
   halfHealthDanceTriggered: boolean;
+  /** Seconds left in Teowerine's fire-casting animation. */
+  castTimer: number;
+  /** Incremented whenever Teowerine starts casting fire. */
+  castSequence: number;
+  /** Prevents the fireball from being launched more than once per cast. */
+  castReleased: boolean;
 };
 
 export type Bullet = { id: number; x: number; y: number; z: number; vx: number; vz: number; life: number; damage: number; crit: boolean; pierce: number; hits: number[] };
-export type HostileShot = { id: number; x: number; y: number; z: number; vx: number; vz: number; life: number; damage: number };
+export type HostileShot = { id: number; x: number; y: number; z: number; vx: number; vz: number; life: number; damage: number; kind: 'acid' | 'fire' };
 export type GrenadeProjectile = { id: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; fuse: number; spin: number };
-export type ExplosionKind = 'frag' | 'nova' | 'slam' | 'acid' | 'levelup' | 'melee';
+export type ExplosionKind = 'frag' | 'nova' | 'slam' | 'acid' | 'fire' | 'levelup' | 'melee';
 export type Explosion = { id: number; kind: ExplosionKind; x: number; z: number; life: number; duration: number; radius: number };
 export type Telegraph = { id: number; x: number; z: number; radius: number; life: number; duration: number };
 export type LootKind = 'gold' | 'health' | 'ammo' | 'energy';
@@ -935,7 +946,7 @@ function makeEnemy(game: Engine, kind: EnemyKind, x: number, z: number): Enemy {
     attackPulse: 0,
     hitFlash: 0,
     spawn: kind === 'boss' ? 1.8 : .9,
-    special: kind === 'boss' ? level.boss.slamEvery : rand(1.4, 2.8),
+    special: kind === 'boss' ? level.boss.slamEvery : kind === 'teowerine' ? rand(2.2, 3.2) : rand(1.4, 2.8),
     slamCharge: 0,
     volleyTimer: 3.5,
     summonStage: 0,
@@ -943,6 +954,9 @@ function makeEnemy(game: Engine, kind: EnemyKind, x: number, z: number): Enemy {
     danceTimer: kind === 'teowerine' ? TEOWERINE_DANCE_DURATION : 0,
     danceSequence: kind === 'teowerine' ? 1 : 0,
     halfHealthDanceTriggered: false,
+    castTimer: 0,
+    castSequence: 0,
+    castReleased: true,
   };
 }
 
@@ -1098,6 +1112,8 @@ function damageEnemy(game: Engine, enemy: Enemy, amount: number, impulseX: numbe
     && enemy.health <= enemy.maxHealth * .5
   ) {
     enemy.halfHealthDanceTriggered = true;
+    enemy.castTimer = 0;
+    enemy.castReleased = true;
     enemy.danceSequence += 1;
     enemy.danceTimer = TEOWERINE_DANCE_DURATION;
   }
@@ -1217,25 +1233,46 @@ function stepHostileShots(game: Engine, dt: number, events: StepEvents) {
     shot.z += shot.vz * dt;
     shot.life -= dt;
     let remove = shot.life <= 0;
-    if (!remove && Math.hypot(shot.x - game.playerX, shot.z - game.playerZ) < .55) {
+    const hitRadius = shot.kind === 'fire' ? .72 : .55;
+    if (!remove && Math.hypot(shot.x - game.playerX, shot.z - game.playerZ) < hitRadius) {
       hurtPlayer(game, shot.damage, events, .12);
       remove = true;
     }
     if (!remove && (hitsObstacle(obstacles, shot.x, shot.z, .08) || Math.hypot(shot.x, shot.z) > currentLevel(game).radius + .5)) remove = true;
     if (remove) {
-      addExplosion(game, 'acid', shot.x, shot.z, .9, .45, events);
-      spawnParticles(game, shot.x, .5, shot.z, 7, ['#9dff8a', '#4fd65e', '#d6ffbf'], 1.6, .06);
+      const fire = shot.kind === 'fire';
+      addExplosion(game, fire ? 'fire' : 'acid', shot.x, shot.z, fire ? 1.15 : .9, fire ? .55 : .45, events);
+      spawnParticles(
+        game,
+        shot.x,
+        .5,
+        shot.z,
+        fire ? 11 : 7,
+        fire ? ['#fff1a8', '#ff9a3d', '#e94720'] : ['#9dff8a', '#4fd65e', '#d6ffbf'],
+        fire ? 2.1 : 1.6,
+        fire ? .08 : .06,
+      );
       game.hostileShots.splice(index, 1);
       events.shotsChanged = true;
     }
   }
 }
 
-function fireHostileShot(game: Engine, x: number, z: number, angle: number, speed: number, damage: number, events: StepEvents) {
+function fireHostileShot(
+  game: Engine,
+  x: number,
+  z: number,
+  angle: number,
+  speed: number,
+  damage: number,
+  events: StepEvents,
+  kind: HostileShot['kind'] = 'acid',
+  y = 1.25,
+) {
   game.hostileShots.push({
-    id: game.nextId++, x, y: 1.25, z,
+    id: game.nextId++, x, y, z,
     vx: Math.sin(angle) * speed, vz: Math.cos(angle) * speed,
-    life: 3.2, damage,
+    life: 3.2, damage, kind,
   });
   events.shotsChanged = true;
 }
@@ -1498,6 +1535,42 @@ function stepEnemies(game: Engine, dt: number, events: StepEvents) {
       continue;
     }
 
+    if (enemy.kind === 'teowerine') {
+      if (enemy.castTimer > 0) {
+        enemy.castTimer = Math.max(0, enemy.castTimer - dt);
+        enemy.special = Math.max(0, enemy.special - dt);
+        enemy.moveBlend = Math.max(0, enemy.moveBlend - dt * 5);
+        enemy.vx = 0;
+        enemy.vz = 0;
+        if (!enemy.castReleased && enemy.castTimer <= TEOWERINE_CAST_DURATION - TEOWERINE_CAST_RELEASE_DELAY) {
+          const angle = Math.atan2(enemy.facingX, enemy.facingZ);
+          const muzzleX = enemy.x + Math.sin(angle) * .42;
+          const muzzleZ = enemy.z + Math.cos(angle) * .42;
+          fireHostileShot(game, muzzleX, muzzleZ, angle, 8, enemy.damage * .9, events, 'fire', 1.6);
+          enemy.castReleased = true;
+          enemy.attackPulse = .45;
+        }
+        continue;
+      }
+
+      enemy.special -= dt;
+      const canCastFire = distance > enemy.radius + 1.2
+        && distance < TEOWERINE_CAST_RANGE
+        && clearPath(game, enemy.x, enemy.z, game.playerX, game.playerZ, .1);
+      if (enemy.special <= 0 && canCastFire) {
+        enemy.castTimer = TEOWERINE_CAST_DURATION;
+        enemy.castSequence += 1;
+        enemy.castReleased = false;
+        enemy.special = rand(5.4, 6.2);
+        enemy.facingX = dx;
+        enemy.facingZ = dz;
+        enemy.vx = 0;
+        enemy.vz = 0;
+        enemy.moveBlend = 0;
+        continue;
+      }
+    }
+
     let retreat = false;
     let wantsMove = distance > enemy.radius + .55;
     if (enemy.kind === 'spitter') {
@@ -1512,8 +1585,19 @@ function stepEnemies(game: Engine, dt: number, events: StepEvents) {
         enemy.attackPulse = .45;
       }
     }
+    if (enemy.kind === 'teowerine') {
+      if (distance < enemy.radius + 2.4) {
+        retreat = true;
+        wantsMove = true;
+      } else if (
+        distance < TEOWERINE_CAST_RANGE * .8
+        && clearPath(game, enemy.x, enemy.z, game.playerX, game.playerZ, .1)
+      ) {
+        wantsMove = false;
+      }
+    }
 
-    // Retreating spitters back off with local steering, everyone else follows the flow field.
+    // Retreating ranged enemies back off with local steering; everyone else follows the flow field.
     const steer = retreat
       ? steerEnemy(game, enemy, enemy.x - dx + dz * .4, enemy.z - dz - dx * .4, dt)
       : seekPlayer(game, enemy);
