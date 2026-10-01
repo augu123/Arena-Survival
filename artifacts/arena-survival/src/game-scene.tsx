@@ -457,6 +457,25 @@ class OptionalAsset extends Component<{ children: ReactNode }, { failed: boolean
   }
 }
 
+class SceneErrorBoundary extends Component<
+  { context: string; fallback: ReactNode; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error(`${this.props.context} failed; switching to its fallback.`, error);
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
 /** One pooled light that flashes on explosions - avoids adding/removing lights (shader recompiles). */
 function FlashLight({ engineRef }: { engineRef: MutableRefObject<Engine> }) {
   const ref = useRef<THREE.PointLight>(null);
@@ -742,14 +761,24 @@ function SceneEntities(props: SceneProps & { level: LevelDef }) {
   return (
     <>
       {started && (
-        <Suspense fallback={<ArenaCarPlaceholder engineRef={engineRef} />}>
-          <ArenaCarModel engineRef={engineRef} />
-        </Suspense>
+        <SceneErrorBoundary
+          context="Car model"
+          fallback={<ArenaCarPlaceholder engineRef={engineRef} />}
+        >
+          <Suspense fallback={<ArenaCarPlaceholder engineRef={engineRef} />}>
+            <ArenaCarModel engineRef={engineRef} />
+          </Suspense>
+        </SceneErrorBoundary>
       )}
       {started && (
-        <Suspense fallback={<OperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />}>
-          <GLBOperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />
-        </Suspense>
+        <SceneErrorBoundary
+          context="Operator model"
+          fallback={<OperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />}
+        >
+          <Suspense fallback={<OperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />}>
+            <GLBOperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />
+          </Suspense>
+        </SceneErrorBoundary>
       )}
       {enemies.map((enemy) => <EnemyEntity key={enemy.id} enemy={enemy} tint={tint} />)}
       {corpses.map((enemy) => <EnemyEntity key={`corpse-${enemy.id}`} enemy={enemy} tint={tint} />)}
@@ -767,9 +796,73 @@ function SceneEntities(props: SceneProps & { level: LevelDef }) {
   );
 }
 
+function TeowerineFallback({ enemy }: { enemy: Enemy }) {
+  const rootRef = useRef<THREE.Group>(null);
+  const healthFillRef = useRef<THREE.Mesh>(null);
+  const healthMaterialRef = useRef<THREE.MeshBasicMaterial>(null);
+
+  useFrame(() => {
+    if (rootRef.current) {
+      rootRef.current.position.set(enemy.x, .02, enemy.z);
+      rootRef.current.rotation.y = Math.atan2(enemy.facingX, enemy.facingZ);
+    }
+    const ratio = THREE.MathUtils.clamp(enemy.health / enemy.maxHealth, 0, 1);
+    if (healthFillRef.current) {
+      healthFillRef.current.scale.x = ratio;
+      healthFillRef.current.position.x = -.62 * (1 - ratio);
+    }
+    healthMaterialRef.current?.color.set(enemy.hitFlash > 0 ? '#fff2d4' : '#e8a843');
+  });
+
+  return (
+    <group ref={rootRef}>
+      <mesh position={[0, .035, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[.54, .61, 36]} />
+        <meshBasicMaterial color="#e8a843" transparent opacity={.82} side={THREE.DoubleSide} />
+      </mesh>
+      <pointLight position={[0, 1.2, 0]} color="#e8a843" intensity={.8} distance={3.8} />
+      <mesh position={[0, .78, 0]} castShadow>
+        <capsuleGeometry args={[.43, .82, 5, 9]} />
+        <meshStandardMaterial color="#91652f" roughness={.82} />
+      </mesh>
+      <mesh position={[0, 1.48, .02]} castShadow>
+        <sphereGeometry args={[.31, 16, 12]} />
+        <meshStandardMaterial color="#c09252" roughness={.7} />
+      </mesh>
+      <mesh position={[-.12, 1.5, .28]}>
+        <sphereGeometry args={[.035, 8, 6]} />
+        <meshBasicMaterial color="#ffe29a" toneMapped={false} />
+      </mesh>
+      <mesh position={[.12, 1.5, .28]}>
+        <sphereGeometry args={[.035, 8, 6]} />
+        <meshBasicMaterial color="#ffe29a" toneMapped={false} />
+      </mesh>
+      <group position={[0, 2.3, 0]}>
+        <mesh>
+          <boxGeometry args={[1.3, .105, .045]} />
+          <meshBasicMaterial color="#10171b" />
+        </mesh>
+        <mesh ref={healthFillRef} position={[-.62, 0, .03]}>
+          <boxGeometry args={[1.2, .055, .025]} />
+          <meshBasicMaterial ref={healthMaterialRef} color="#e8a843" toneMapped={false} />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
 function EnemyEntity({ enemy, tint }: { enemy: Enemy; tint: string }) {
   const rootRef = useRef<THREE.Group | null>(null);
-  if (enemy.kind === 'teowerine') return <MiniBossCharacter enemy={enemy} />;
+  if (enemy.kind === 'teowerine') {
+    const fallback = <TeowerineFallback enemy={enemy} />;
+    return (
+      <SceneErrorBoundary context="Teowerine model" fallback={fallback}>
+        <Suspense fallback={fallback}>
+          <MiniBossCharacter enemy={enemy} />
+        </Suspense>
+      </SceneErrorBoundary>
+    );
+  }
   return <SleeperCharacter enemy={enemy} rootRef={rootRef} bossTint={tint} />;
 }
 
@@ -1018,31 +1111,36 @@ export function GameScene(props: SceneProps) {
   if (!webglAvailable) return <FallbackScene {...props} />;
 
   return (
-    <Canvas
-      className="game-canvas"
-      camera={{ position: [0, 6, 12], fov: 62, near: .1, far: 160 }}
-      dpr={[1, 1.5]}
-      shadows="percentage"
-      gl={{ antialias: true, powerPreference: 'high-performance' }}
-      onCreated={({ gl }) => {
-        gl.shadowMap.type = THREE.PCFShadowMap;
-        gl.toneMapping = THREE.ACESFilmicToneMapping;
-        gl.toneMappingExposure = 1.15;
-      }}
+    <SceneErrorBoundary
+      context="3D arena"
       fallback={<FallbackScene {...props} />}
     >
-      <LevelLighting level={level} engineRef={props.engineRef} />
-      <ThirdPersonCamera
-        engineRef={props.engineRef}
-        inputRef={props.inputRef}
-        active={props.active}
-        started={props.started}
-        onPause={props.onPause}
-        resetKey={props.resetKey}
-      />
-      <ArenaGeometry key={level.id} level={level} engineRef={props.engineRef} />
-      <SceneEntities {...props} level={level} />
-      <PostFX />
-    </Canvas>
+      <Canvas
+        className="game-canvas"
+        camera={{ position: [0, 6, 12], fov: 62, near: .1, far: 160 }}
+        dpr={[1, 1.5]}
+        shadows="percentage"
+        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        onCreated={({ gl }) => {
+          gl.shadowMap.type = THREE.PCFShadowMap;
+          gl.toneMapping = THREE.ACESFilmicToneMapping;
+          gl.toneMappingExposure = 1.15;
+        }}
+        fallback={<FallbackScene {...props} />}
+      >
+        <LevelLighting level={level} engineRef={props.engineRef} />
+        <ThirdPersonCamera
+          engineRef={props.engineRef}
+          inputRef={props.inputRef}
+          active={props.active}
+          started={props.started}
+          onPause={props.onPause}
+          resetKey={props.resetKey}
+        />
+        <ArenaGeometry key={level.id} level={level} engineRef={props.engineRef} />
+        <SceneEntities {...props} level={level} />
+        <PostFX />
+      </Canvas>
+    </SceneErrorBoundary>
   );
 }
