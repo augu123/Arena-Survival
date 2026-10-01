@@ -957,7 +957,8 @@ function findVisibleBossSpawnPoint(game: Engine, minPlayerDistance: number, clea
     Math.max(minPlayerDistance, maxDistance - .7),
     Math.max(minPlayerDistance, maxDistance - 1.4),
   ];
-  const angleOffsets = [0, -.22, .22, -.42, .42, -.62, .62];
+  // Prefer slightly right of centre: dead ahead is hidden behind the over-the-shoulder player model.
+  const angleOffsets = [-.3, .3, -.5, .5, -.15, .15, 0, -.7, .7];
 
   for (const offset of angleOffsets) {
     const yaw = game.cameraYaw + offset;

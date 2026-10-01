@@ -2,4 +2,5 @@
 - [Workspace dependency reconciliation](workspace-dependency-reconciliation.md) — generic package installs target the pnpm root; reconcile declared artifact dependencies within their workspace package.
 - [Three.js alpha masks](three-alpha-masks.md) — alphaMap reads the green color channel, not canvas alpha; convert transparent cutouts to opaque grayscale masks.
 - [Operator character asset](operator-glb.md) — the supplied GLB is the WebGL player; the sheet remains only for the no-WebGL fallback.
+- [Model assets and LFS](model-assets.md) — runtime GLBs are plain optimized files in attached_assets/models; never pass fallback= to the R3F Canvas.
 - [Campaign spawn verification](campaign-spawn-verification.md) — verify enemy visibility through real wave progression; synthetic scene insertion can miss campaign gating or state sync.

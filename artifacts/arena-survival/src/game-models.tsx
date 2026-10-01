@@ -285,7 +285,7 @@ export function OperatorCharacter({
     rig.rightLeg = rightLegRef.current;
     const motion = motionRef.current;
     const stride = Math.min(1, motion.speed) * (motion.dying > 0 ? 0 : 1);
-    const swing = Math.sin(motion.time * 10.5) * (motion.strafe < 0 ? -1 : 1);
+    const swing = Math.sin(motion.time * 10.5) * (motion.forward < -.15 ? -1 : 1);
     const breathe = Math.sin(motion.time * 2.2);
     const melee = Math.sin(Math.min(1, motion.melee) * Math.PI);
     const meleeWind = motion.melee > 0 ? (motion.melee < .35 ? motion.melee / .35 : 1 - (motion.melee - .35) / .65) : 0;

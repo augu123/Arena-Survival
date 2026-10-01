@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, type MutableRefObject, type ReactNode } fro
 import { useFrame, useLoader } from '@react-three/fiber';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as THREE from 'three';
-import carModelUrl from '@assets/luxury+car+3d+model_1790685156102.glb?url';
+import carModelUrl from '@assets/models/arena-car.glb?url';
 import { ARENA_CAR, type Engine } from './game-simulation';
+
+// Start downloading as soon as the game boots, so the model is ready when it's first needed.
+useLoader.preload(GLTFLoader, carModelUrl);
 
 const CAR_MODEL_YAW_OFFSET = Math.PI;
 const WHEEL_RADIUS = .067;
