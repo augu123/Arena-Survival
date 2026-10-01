@@ -4,19 +4,16 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as THREE from 'three';
 import operatorModelUrl from '@assets/base_basic_pbr_1790662051664.glb?url';
 import { CarbineModel, type OperatorMotion, type OperatorRig } from './game-models';
-import { type Engine } from './game-simulation';
 import { skinOperator } from './operator-skin';
 
 export function GLBOperatorCharacter({
   rootRef,
   rigRef,
   motionRef,
-  engineRef,
 }: {
   rootRef: MutableRefObject<THREE.Group | null>;
   rigRef: MutableRefObject<OperatorRig>;
   motionRef: MutableRefObject<OperatorMotion>;
-  engineRef: MutableRefObject<Engine>;
 }) {
   const gltf = useLoader(GLTFLoader, operatorModelUrl);
   const bodyRef = useRef<THREE.Group>(null);
@@ -78,7 +75,7 @@ export function GLBOperatorCharacter({
       <group ref={bodyRef}>
         <primitive object={skinned.mesh} />
         <group position={[.18, 1.12, .14]}>
-          <CarbineModel rigRef={rigRef} motionRef={motionRef} engineRef={engineRef} scale={.72} />
+          <CarbineModel rigRef={rigRef} motionRef={motionRef} scale={.72} />
         </group>
       </group>
     </group>
