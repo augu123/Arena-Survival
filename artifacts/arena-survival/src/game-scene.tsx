@@ -555,8 +555,11 @@ function ThirdPersonCamera({ engineRef, inputRef, active, started, onPause, rese
     const onMove = (event: globalThis.PointerEvent) => {
       if (!activeRef.current) return;
       if (document.pointerLockElement === element) {
-        inputRef.current.lookDX += event.movementX;
-        inputRef.current.lookDY += event.movementY;
+        // Chrome can report a bogus jump right after the pointer locks; drop those spikes.
+        if (Math.abs(event.movementX) < 300 && Math.abs(event.movementY) < 300) {
+          inputRef.current.lookDX += event.movementX;
+          inputRef.current.lookDY += event.movementY;
+        }
       } else if (dragging) {
         inputRef.current.lookDX += (event.clientX - lastX) * (event.pointerType === 'mouse' ? 1 : 1.6);
         inputRef.current.lookDY += (event.clientY - lastY) * (event.pointerType === 'mouse' ? 1 : 1.6);
@@ -651,7 +654,8 @@ function ThirdPersonCamera({ engineRef, inputRef, active, started, onPause, rese
       reach *= .85;
     }
     temp.desired.set(temp.target.x - fx * reach * cp, Math.max(.45, temp.target.y + reach * sp), temp.target.z - fz * reach * cp);
-    camera.position.lerp(temp.desired, 1 - Math.exp(-dt * 22));
+    // Lock to the player: any easing here makes the character drift inside the frame.
+    camera.position.copy(temp.desired);
     const shake = active ? game.cameraShake : 0;
     if (shake > 0) {
       camera.position.x += (Math.random() - .5) * shake * .35;
@@ -702,6 +706,7 @@ function SceneEntities(props: SceneProps & { level: LevelDef }) {
   const rigRef = useRef(createOperatorRig());
   const motionRef = useRef<OperatorMotion>(idleMotion());
   const heading = useRef(Math.PI);
+  const combatHold = useRef(0);
   const syncedEpoch = useRef(-1);
   const step = useGameCallbacks(props);
   useKeyboard(inputRef, active, onPause);
@@ -735,15 +740,26 @@ function SceneEntities(props: SceneProps & { level: LevelDef }) {
       if (events.floatersChanged) setFloaters([...game.floaters]);
     }
 
-    let delta = game.facing - heading.current;
+    // Face where you're running; snap to the crosshair while fighting (and briefly after).
+    const fighting = inputRef.current.fire || game.firePulse > 0 || game.meleeTimer > 0 || game.castTimer > 0 || game.vehicle.driving;
+    combatHold.current = fighting ? .6 : Math.max(0, combatHold.current - dt);
+    const moving = Math.hypot(game.playerVX, game.playerVZ) > .6;
+    const targetHeading = combatHold.current > 0 || !moving
+      ? game.facing
+      : Math.atan2(game.playerVX, game.playerVZ);
+    let delta = targetHeading - heading.current;
     delta = Math.atan2(Math.sin(delta), Math.cos(delta));
-    heading.current += delta * (1 - Math.exp(-dt * 20));
+    heading.current += delta * (1 - Math.exp(-dt * (combatHold.current > 0 ? 28 : 16)));
     if (playerRef.current) {
       playerRef.current.position.set(game.playerX, .02, game.playerZ);
       playerRef.current.rotation.y = heading.current;
       playerRef.current.visible = !game.vehicle.driving;
     }
-    const forwardSpeed = game.playerVX * Math.sin(game.facing) + game.playerVZ * Math.cos(game.facing);
+    // Gait is measured against the body's actual heading so legs match the travel direction.
+    const bodySin = Math.sin(heading.current);
+    const bodyCos = Math.cos(heading.current);
+    const forwardSpeed = game.playerVX * bodySin + game.playerVZ * bodyCos;
+    const lateralSpeed = game.playerVX * bodyCos - game.playerVZ * bodySin;
     motionRef.current = {
       time: game.playerPhase,
       speed: game.dashTimer > 0 ? 0 : game.playerSpeed,
@@ -755,9 +771,9 @@ function SceneEntities(props: SceneProps & { level: LevelDef }) {
       melee: game.meleeTimer > 0 ? 1 - game.meleeTimer / .38 : 0,
       cast: Math.min(1, game.castTimer * 3),
       dying: game.dying,
-      strafe: forwardSpeed < -.5 ? -1 : 1,
+      strafe: Math.max(-1, Math.min(1, lateralSpeed / 7.4)),
     };
-  });
+  }, -3);
 
   const tint = level.boss.tint;
   return (
@@ -1138,7 +1154,6 @@ export function GameScene(props: SceneProps) {
           gl.toneMapping = THREE.ACESFilmicToneMapping;
           gl.toneMappingExposure = 1.15;
         }}
-        fallback={<FallbackScene {...props} />}
       >
         <LevelLighting level={level} engineRef={props.engineRef} />
         <ThirdPersonCamera

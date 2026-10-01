@@ -6,6 +6,9 @@ import operatorModelUrl from '@assets/base_basic_pbr_1790662051664.glb?url';
 import { CarbineModel, type OperatorMotion, type OperatorRig } from './game-models';
 import { skinOperator } from './operator-skin';
 
+// Start downloading as soon as the game boots, so the model is ready when it's first needed.
+useLoader.preload(GLTFLoader, operatorModelUrl);
+
 export function GLBOperatorCharacter({
   rootRef,
   rigRef,

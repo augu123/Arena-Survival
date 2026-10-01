@@ -2,8 +2,11 @@ import { useMemo, useRef } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as THREE from 'three';
-import wardenModelUrl from '@assets/Tripo+Demo+Model_1790837907580.glb?url';
+import wardenModelUrl from '@assets/models/warden.glb?url';
 import type { Enemy } from './game-simulation';
+
+// Start downloading as soon as the game boots, so the model is ready when it's first needed.
+useLoader.preload(GLTFLoader, wardenModelUrl);
 
 export function WardenCharacter({ enemy, tint }: { enemy: Enemy; tint: string }) {
   const gltf = useLoader(GLTFLoader, wardenModelUrl);

@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as THREE from 'three';
-import bossModelUrl from '@assets/base_basic_pbr_(1)_1790682226476.glb?url';
+import bossModelUrl from '@assets/models/teowerine.glb?url';
 import type { Enemy } from './game-simulation';
+
+// Start downloading as soon as the game boots, so the model is ready when it's first needed.
+useLoader.preload(GLTFLoader, bossModelUrl);
 
 export function MiniBossCharacter({ enemy }: { enemy: Enemy }) {
   const gltf = useLoader(GLTFLoader, bossModelUrl);
