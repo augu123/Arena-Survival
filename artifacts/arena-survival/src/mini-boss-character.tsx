@@ -51,11 +51,11 @@ export function MiniBossCharacter({ enemy }: { enemy: Enemy }) {
   return (
     <group ref={rootRef} dispose={null}>
       <mesh position={[0, .035, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[.54, .61, 36]} />
-        <meshBasicMaterial color="#e8a843" transparent opacity={.82} side={THREE.DoubleSide} />
+        <ringGeometry args={[.86, 1, 48]} />
+        <meshBasicMaterial color="#ffc15b" transparent opacity={.95} side={THREE.DoubleSide} toneMapped={false} />
       </mesh>
-      <pointLight position={[0, 1.2, 0]} color="#e8a843" intensity={.8} distance={3.8} />
-      <group ref={bodyRef} scale={enemy.scale * 1.15}>
+      <pointLight position={[0, 1.5, 0]} color="#ffbd54" intensity={1.4} distance={5} />
+      <group ref={bodyRef} scale={enemy.scale * 1.45}>
         <primitive object={model} />
       </group>
       <group position={[0, 2.3, 0]}>

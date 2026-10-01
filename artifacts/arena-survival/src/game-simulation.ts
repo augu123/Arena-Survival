@@ -949,9 +949,9 @@ function findSpawnPoint(game: Engine, minPlayerDistance: number, clearance = .6)
   return findFreeSpot(game, Math.cos(angle) * (level.radius - 2.5), Math.sin(angle) * (level.radius - 2.5), clearance);
 }
 
-function findVisibleBossSpawnPoint(game: Engine, minPlayerDistance: number, clearance: number) {
+function findVisibleBossSpawnPoint(game: Engine, minPlayerDistance: number, clearance: number, extraDistance = 1.4) {
   const level = currentLevel(game);
-  const maxDistance = Math.min(minPlayerDistance + 1.4, level.radius - clearance - .5);
+  const maxDistance = Math.min(minPlayerDistance + extraDistance, level.radius - clearance - .5);
   const distances = [
     maxDistance,
     Math.max(minPlayerDistance, maxDistance - .7),
@@ -966,6 +966,18 @@ function findVisibleBossSpawnPoint(game: Engine, minPlayerDistance: number, clea
       const z = game.playerZ - Math.cos(yaw) * distance;
       if (Math.hypot(x, z) > level.radius - clearance) continue;
       if (hitsObstacle(level.obstacles, x, z, clearance) || hitsVehicle(game, x, z, clearance)) continue;
+      const sampleCount = Math.ceil(distance / .35);
+      let visible = true;
+      for (let sample = 2; sample < sampleCount; sample += 1) {
+        const progress = sample / sampleCount;
+        const sampleX = game.playerX + (x - game.playerX) * progress;
+        const sampleZ = game.playerZ + (z - game.playerZ) * progress;
+        if (hitsObstacle(level.obstacles, sampleX, sampleZ, .18) || hitsVehicle(game, sampleX, sampleZ, .18)) {
+          visible = false;
+          break;
+        }
+      }
+      if (!visible) continue;
       return { x, z };
     }
   }
@@ -978,7 +990,7 @@ function spawnEnemy(game: Engine, kind: EnemyKind, events: StepEvents, near?: { 
   const clearance = ENEMY_STATS[kind].radius * 1.2 + .15;
   const point = near ?? (
     kind === 'boss' || kind === 'teowerine'
-      ? findVisibleBossSpawnPoint(game, minPlayerDistance, clearance)
+      ? findVisibleBossSpawnPoint(game, minPlayerDistance, clearance, kind === 'teowerine' ? .35 : 1.4)
       : findSpawnPoint(game, minPlayerDistance, clearance)
   );
   const enemy = makeEnemy(game, kind, point.x, point.z);

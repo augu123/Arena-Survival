@@ -43,6 +43,7 @@ import {
 } from './game-models';
 import { ArenaCarModel, ArenaCarPlaceholder } from './arena-car';
 import { MiniBossCharacter } from './mini-boss-character';
+import { WardenCharacter } from './warden-character';
 import { GLBOperatorCharacter } from './glb-operator-character';
 
 export type { GameStatus, HudStats, InputState } from './game-simulation';
@@ -854,6 +855,16 @@ function TeowerineFallback({ enemy }: { enemy: Enemy }) {
 
 function EnemyEntity({ enemy, tint }: { enemy: Enemy; tint: string }) {
   const rootRef = useRef<THREE.Group | null>(null);
+  if (enemy.kind === 'boss') {
+    const fallback = <SleeperCharacter enemy={enemy} rootRef={rootRef} bossTint={tint} />;
+    return (
+      <SceneErrorBoundary context="Warden model" fallback={fallback}>
+        <Suspense fallback={fallback}>
+          <WardenCharacter enemy={enemy} tint={tint} />
+        </Suspense>
+      </SceneErrorBoundary>
+    );
+  }
   if (enemy.kind === 'teowerine') {
     const fallback = <TeowerineFallback enemy={enemy} />;
     return (
