@@ -3,4 +3,4 @@
 - [Three.js alpha masks](three-alpha-masks.md) — alphaMap reads the green color channel, not canvas alpha; convert transparent cutouts to opaque grayscale masks.
 - [Operator character asset](operator-glb.md) — the supplied GLB is the WebGL player; the sheet remains only for the no-WebGL fallback.
 - [Model assets and LFS](model-assets.md) — runtime GLBs are plain optimized files in attached_assets/models; never pass fallback= to the R3F Canvas.
-- [Campaign spawn verification](campaign-spawn-verification.md) — verify enemy visibility through real wave progression; synthetic scene insertion can miss campaign gating or state sync.
+- [Campaign spawn verification](campaign-spawn-verification.md) — use real level flow; when headless WebGL is slow, pair simulation/HUD checks with a separate render check.

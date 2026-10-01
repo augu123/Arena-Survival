@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as THREE from 'three';
@@ -10,20 +10,29 @@ useLoader.preload(GLTFLoader, bossModelUrl);
 
 export function MiniBossCharacter({ enemy }: { enemy: Enemy }) {
   const gltf = useLoader(GLTFLoader, bossModelUrl);
-  const model = useMemo(() => gltf.scene.clone(true), [gltf.scene]);
-  const rootRef = useRef<THREE.Group>(null);
-  const bodyRef = useRef<THREE.Group>(null);
-  const healthFillRef = useRef<THREE.Mesh>(null);
-  const healthMaterialRef = useRef<THREE.MeshStandardMaterial>(null);
-
-  useEffect(() => {
+  const normalizedModel = useMemo(() => {
+    const model = gltf.scene.clone(true);
+    model.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(model);
+    const size = bounds.getSize(new THREE.Vector3());
+    const center = bounds.getCenter(new THREE.Vector3());
     model.traverse((object) => {
       if (object instanceof THREE.Mesh) {
         object.castShadow = true;
         object.receiveShadow = true;
       }
     });
-  }, [model]);
+
+    return {
+      model,
+      scale: (enemy.scale * 1.45) / Math.max(size.y, .001),
+      offset: new THREE.Vector3(-center.x, -bounds.min.y, -center.z),
+    };
+  }, [enemy.scale, gltf.scene]);
+  const rootRef = useRef<THREE.Group>(null);
+  const bodyRef = useRef<THREE.Group>(null);
+  const healthFillRef = useRef<THREE.Mesh>(null);
+  const healthMaterialRef = useRef<THREE.MeshStandardMaterial>(null);
 
   useFrame(() => {
     if (rootRef.current) {
@@ -58,8 +67,8 @@ export function MiniBossCharacter({ enemy }: { enemy: Enemy }) {
         <meshBasicMaterial color="#ffc15b" transparent opacity={.95} side={THREE.DoubleSide} toneMapped={false} />
       </mesh>
       <pointLight position={[0, 1.5, 0]} color="#ffbd54" intensity={1.4} distance={5} />
-      <group ref={bodyRef} scale={enemy.scale * 1.45}>
-        <primitive object={model} />
+      <group ref={bodyRef} scale={normalizedModel.scale}>
+        <primitive object={normalizedModel.model} position={normalizedModel.offset} />
       </group>
       <group position={[0, 2.3, 0]}>
         <mesh>
