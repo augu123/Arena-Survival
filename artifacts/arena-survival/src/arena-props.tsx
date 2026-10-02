@@ -14,8 +14,11 @@ import * as THREE from 'three';
 
 export type PropName =
   | 'crate' | 'barrier' | 'pillar' | 'buttress' | 'wall_panel' | 'floor_vent' | 'toxic_drain' | 'light_tower'
-  // Second batch: cover variants, plus the gameplay set pieces in arena-devices.tsx.
-  | 'barrel' | 'wood_crate' | 'landmark_pillar' | 'wall_arc' | 'stack_vent' | 'field_emitter' | 'arc_trap' | 'dome_segment' | 'floor_tile';
+  // Second batch. Only barrel, wood_crate and landmark_pillar are placed so far;
+  // the rest are in the repo ready for features that will use them.
+  | 'barrel' | 'wood_crate' | 'landmark_pillar' | 'wall_arc' | 'stack_vent' | 'field_emitter' | 'arc_trap' | 'dome_segment' | 'floor_tile'
+  // Third batch. hydraulic_platform, sliding_wall and rifle wait for gameplay that uses them.
+  | 'scifi_cube' | 'pipe' | 'cable_tray' | 'warning_sign' | 'biohazard_marker' | 'ammo_box' | 'energy_cell' | 'hydraulic_platform' | 'sliding_wall' | 'rifle';
 
 const MODEL_URLS = import.meta.glob('@assets/models/*.glb', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
 
@@ -27,10 +30,7 @@ function propUrl(name: PropName) {
 const withMeshopt = (loader: GLTFLoader) => { loader.setMeshoptDecoder(MeshoptDecoder); };
 
 // Start downloading as soon as the game boots.
-for (const name of [
-  'crate', 'barrier', 'pillar', 'buttress', 'toxic_drain', 'light_tower', 'floor_vent', 'wall_panel', 'barrel', 'wood_crate', 'landmark_pillar',
-  'wall_arc', 'stack_vent', 'field_emitter', 'arc_trap', 'dome_segment', 'floor_tile',
-] as PropName[]) {
+for (const name of ['crate', 'barrier', 'pillar', 'buttress', 'toxic_drain', 'light_tower', 'floor_vent', 'wall_panel', 'barrel', 'wood_crate', 'landmark_pillar', 'scifi_cube', 'pipe', 'cable_tray', 'warning_sign', 'biohazard_marker', 'ammo_box', 'energy_cell'] as PropName[]) {
   const url = propUrl(name);
   if (url) useLoader.preload(GLTFLoader, url, withMeshopt);
 }
@@ -49,16 +49,18 @@ type FitProps = {
   align?: 'bottom' | 'top';
   /** Turn off for big background pieces that only need to receive shadows. */
   castShadow?: boolean;
-  /** Rotate the model itself (radians, XYZ) before it's fitted, e.g. to lay a standing slab flat. */
-  orient?: [number, number, number];
 };
 
-function FittedModel({ url, size, maxStretch = Infinity, align = 'bottom', castShadow = true, orient, ...group }: FitProps & GroupProps & { url: string }) {
+function FittedModel({ url, size, maxStretch = Infinity, align = 'bottom', castShadow = true, ...group }: FitProps & GroupProps & { url: string }) {
   const gltf = useLoader(GLTFLoader, url, withMeshopt);
-  const [ox = 0, oy = 0, oz = 0] = orient ?? [];
+
+  const bounds = useMemo(() => {
+    gltf.scene.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(gltf.scene);
+    return { size: box.getSize(new THREE.Vector3()), center: box.getCenter(new THREE.Vector3()), minY: box.min.y, maxY: box.max.y };
+  }, [gltf.scene]);
 
   // Clones share geometry, materials and textures with the cached original.
-  // The clone sits in a wrapper carrying `orient`, so bounds are measured after that turn.
   const model = useMemo(() => {
     const clone = gltf.scene.clone(true);
     clone.traverse((object) => {
@@ -67,18 +69,8 @@ function FittedModel({ url, size, maxStretch = Infinity, align = 'bottom', castS
         object.receiveShadow = true;
       }
     });
-    const wrapper = new THREE.Group();
-    wrapper.rotation.set(ox, oy, oz);
-    wrapper.add(clone);
-    return wrapper;
-  }, [gltf.scene, castShadow, ox, oy, oz]);
-
-  const bounds = useMemo(() => {
-    model.position.set(0, 0, 0);
-    model.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(model);
-    return { size: box.getSize(new THREE.Vector3()), center: box.getCenter(new THREE.Vector3()), minY: box.min.y, maxY: box.max.y };
-  }, [model]);
+    return clone;
+  }, [gltf.scene, castShadow]);
 
   const fit = useMemo(() => {
     const [tx, ty, tz] = size;

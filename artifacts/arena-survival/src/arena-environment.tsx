@@ -6,7 +6,6 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { getConcreteTextures, getWoodTextures, tiledTexture } from './arena-textures';
 import { ARENA_SURFACES, upgradeMaterialTextures } from './real-textures';
 import { Prop, getGlowTexture } from './arena-props';
-import { ArcWall, DeviceLayer, GateLayer } from './arena-devices';
 import type { Hazard, LevelDef, Obstacle } from './game-levels';
 import { ventState, type Engine } from './game-simulation';
 
@@ -150,7 +149,15 @@ function HazardMesh({ hazard, engineRef, accent }: { hazard: Hazard; engineRef: 
       flameMaterialRef.current.opacity = .55 + Math.sin(clock.elapsedTime * 40) * .1;
     }
   });
+  // Signage sits just past the hazard's edge on the side facing the outer wall,
+  // turned so its face looks back toward the middle of the arena.
+  const outward = Math.hypot(hazard.x, hazard.z) > .5 ? Math.atan2(hazard.z, hazard.x) : 0;
+  const signAt = (gap: number) => {
+    const d = hazard.radius * 1.3 + gap;
+    return { position: [Math.cos(outward) * d, 0, Math.sin(outward) * d] as [number, number, number], yaw: Math.atan2(Math.sin(outward), -Math.cos(outward)) };
+  };
   if (hazard.kind === 'toxic') {
+    const marker = signAt(.7);
     const liquid = (y: number) => (
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, y, 0]} receiveShadow>
         <circleGeometry args={[hazard.radius, 48]} />
@@ -172,6 +179,10 @@ function HazardMesh({ hazard, engineRef, accent }: { hazard: Hazard; engineRef: 
     return (
       <group position={[hazard.x, .012, hazard.z]}>
         <Prop name="toxic_drain" size={[outer, .36, outer]} fallback={procedural} overlay={liquid(.26)} />
+        {/* Painted biohazard disc, sunk so only its top face shows. */}
+        <group position={marker.position} rotation={[0, marker.yaw, 0]}>
+          <Prop name="biohazard_marker" position={[0, .03, 0]} align="top" size={[1.2, 10, 1.2]} maxStretch={1} castShadow={false} />
+        </group>
       </group>
     );
   }
@@ -213,6 +224,9 @@ function HazardMesh({ hazard, engineRef, accent }: { hazard: Hazard; engineRef: 
         fallback={procedural}
         overlay={heatGlow}
       />
+      <group position={signAt(.45).position} rotation={[0, signAt(.45).yaw, 0]}>
+        <Prop name="warning_sign" size={[.5, 1.15, .7]} maxStretch={1} />
+      </group>
       <mesh ref={flameRef} position={[0, 1.5, 0]} visible={false}>
         <cylinderGeometry args={[.35, 1, 1, 18, 1, true]} />
         <meshBasicMaterial ref={flameMaterialRef} color="#ff8a3d" transparent opacity={.6} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
@@ -286,6 +300,19 @@ export function ArenaGeometry({ level, engineRef }: { level: LevelDef; engineRef
         <ringGeometry args={[wallRadius - .05, wallRadius + .5, 96]} />
         <primitive object={materials.crown} attach="material" />
       </mesh>
+      {panels.filter((panel) => panel.key < 40 && panel.key % 2 === 1).map((panel) => {
+        // Every other bay gets a run of pipe or a cable tray in front of the panels.
+        const pipe = panel.key % 4 === 1;
+        const angle = ((panel.key + .5) / 40) * Math.PI * 2;
+        const radius = wallRadius - (pipe ? .4 : .36);
+        return (
+          <group key={`run-${panel.key}`} position={[Math.cos(angle) * radius, pipe ? 2.55 : 3.05, Math.sin(angle) * radius]} rotation={[0, panel.yaw, 0]}>
+            {pipe
+              ? <Prop name="pipe" size={[panel.size[0] * .92, .34, .36]} castShadow={false} />
+              : <Prop name="cable_tray" size={[panel.size[0] * .92, .2, .42]} castShadow={false} />}
+          </group>
+        );
+      })}
       {panels.map((panel) => (
         <group key={panel.key} position={panel.position} rotation={[0, panel.yaw, 0]}>
           <group rotation={[0, 0, panel.flip ? Math.PI : 0]}>
@@ -353,9 +380,6 @@ export function ArenaGeometry({ level, engineRef }: { level: LevelDef; engineRef
       ))}
 
       {level.obstacles.map((obstacle, index) => {
-        // Curved walls draw one model per wall; devices are drawn by DeviceLayer.
-        if (obstacle.kind === 'arc') return obstacle.render ? <ArcWall key={index} obstacle={obstacle} fallbackMaterial={materials.barrier} /> : null;
-        if (obstacle.kind === 'device') return null;
         if (obstacle.kind === 'crate') {
           const s = obstacle.halfX * 2;
           const procedural = (
@@ -369,14 +393,16 @@ export function ArenaGeometry({ level, engineRef }: { level: LevelDef; engineRef
           );
           return (
             <group key={index} position={[obstacle.x, 0, obstacle.z]} rotation={[0, (index * 1.37) % .5 - .25, 0]}>
-              {/* Mix three crate looks so cover doesn't read as copy-pasted. */}
-              {index % 3 === 1 ? (
-                <Prop name="barrel" size={[s * .85, s * 1.15, obstacle.halfZ * 2 * .85]} maxStretch={1} fallback={<Prop name="crate" size={[s, s, obstacle.halfZ * 2]} maxStretch={1.35} fallback={procedural} />} />
-              ) : index % 3 === 2 ? (
-                <Prop name="wood_crate" size={[s, s, obstacle.halfZ * 2]} maxStretch={1.1} fallback={<Prop name="crate" size={[s, s, obstacle.halfZ * 2]} maxStretch={1.35} fallback={procedural} />} />
-              ) : (
-                <Prop name="crate" size={[s, s, obstacle.halfZ * 2]} maxStretch={1.35} fallback={procedural} />
-              )}
+              {/* Mix four cover looks so crates don't read as copy-pasted. */}
+              {(() => {
+                const base = <Prop name="crate" size={[s, s, obstacle.halfZ * 2]} maxStretch={1.35} fallback={procedural} />;
+                switch (index % 4) {
+                  case 1: return <Prop name="barrel" size={[s * .85, s * 1.15, obstacle.halfZ * 2 * .85]} maxStretch={1} fallback={base} />;
+                  case 2: return <Prop name="wood_crate" size={[s, s, obstacle.halfZ * 2]} maxStretch={1.1} fallback={base} />;
+                  case 3: return <Prop name="scifi_cube" size={[s, s, obstacle.halfZ * 2]} maxStretch={1.15} fallback={base} />;
+                  default: return base;
+                }
+              })()}
             </group>
           );
         }
@@ -428,8 +454,6 @@ export function ArenaGeometry({ level, engineRef }: { level: LevelDef; engineRef
       {level.hazards.map((hazard, index) => (
         <HazardMesh key={`${level.id}-hazard-${index}`} hazard={hazard} engineRef={engineRef} accent={level.theme.accent} />
       ))}
-      <DeviceLayer level={level} engineRef={engineRef} />
-      <GateLayer level={level} engineRef={engineRef} />
     </group>
   );
 }

@@ -2,6 +2,7 @@ import { type MutableRefObject, useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Billboard, Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { Prop } from './arena-props';
 import {
   MAX_PARTICLES,
   type Bullet,
@@ -702,8 +703,6 @@ const EXPLOSION_COLORS: Record<Explosion['kind'], { ring: string; core: string }
   fire: { ring: '#ff7130', core: '#fff0a3' },
   levelup: { ring: '#ffd45e', core: '#fff2b0' },
   melee: { ring: '#d8fbff', core: '#ffffff' },
-  stack: { ring: '#ffb347', core: '#ffe2a8' },
-  pylon: { ring: '#8ef1ff', core: '#ffffff' },
 };
 
 export function ExplosionMesh({ explosion, tint }: { explosion: Explosion; tint?: string }) {
@@ -793,13 +792,23 @@ export function LootMesh({ loot }: { loot: Loot }) {
           <Part geometry={GEO.box} material={MAT.heal} scale={[.11, .34, .11]} />
         </>
       )}
-      {loot.kind === 'energy' && <Part geometry={GEO.octa} material={MAT.energy} scale={[.17, .24, .17]} />}
+      {loot.kind === 'energy' && (
+        <Prop name="energy_cell" position={[0, -.17, 0]} size={[.34, .34, .34]} maxStretch={1} fallback={<Part geometry={GEO.octa} material={MAT.energy} scale={[.17, .24, .17]} />} />
+      )}
       {loot.kind === 'ammo' && (
-        <>
-          <Part geometry={GEO.box} material={MAT.ammoBox} scale={[.46, .3, .3]} />
-          <Part geometry={GEO.box} material={MAT.cyan} position={[0, 0, .152]} scale={[.38, .05, .01]} />
-          <Part geometry={GEO.box} material={MAT.cyan} position={[0, 0, -.152]} scale={[.38, .05, .01]} />
-        </>
+        <Prop
+          name="ammo_box"
+          position={[0, -.2, 0]}
+          size={[.5, .4, .34]}
+          maxStretch={1}
+          fallback={(
+            <>
+              <Part geometry={GEO.box} material={MAT.ammoBox} scale={[.46, .3, .3]} />
+              <Part geometry={GEO.box} material={MAT.cyan} position={[0, 0, .152]} scale={[.38, .05, .01]} />
+              <Part geometry={GEO.box} material={MAT.cyan} position={[0, 0, -.152]} scale={[.38, .05, .01]} />
+            </>
+          )}
+        />
       )}
       <mesh position={[0, -loot.y + .04, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={.32}>
         <primitive object={GEO.ring} attach="geometry" />
