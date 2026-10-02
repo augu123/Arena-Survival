@@ -5,3 +5,4 @@
 - [Model assets and LFS](model-assets.md) — runtime GLBs are plain optimized files in attached_assets/models; never pass fallback= to the R3F Canvas.
 - [Campaign spawn verification](campaign-spawn-verification.md) — use real level flow; when headless WebGL is slow, pair simulation/HUD checks with a separate render check.
 - [Live Vite error checks](live-vite-error-checks.md) — after source reconciliation, inspect the active dev workflow; a stale built preview can hide transform errors.
+- [Mobile HUD scope](mobile-hud-scope.md) — keep the existing touch controls unchanged when compacting the mobile HUD.

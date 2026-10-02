@@ -359,7 +359,7 @@ button { font: inherit; }
   .hud-bottomline { bottom: 10.6rem !important; }
   .touch-actions { width: 200px; }
 }
-@media (max-width: 700px), (max-height: 520px) and (max-width: 980px) {
+@media (max-width: 860px), (max-height: 520px) and (max-width: 980px) {
   .radar-panel { display: none; }
   .vitals-panel { width: max-content; min-width: 0; padding: .32rem .48rem; }
   .desktop-vitals { display: none; }
