@@ -42,7 +42,7 @@ import { ArenaCarModel, ArenaCarPlaceholder } from './arena-car';
 import { MiniBossCharacter } from './mini-boss-character';
 import { MeleeCharacter } from './melee-character';
 import { WardenCharacter } from './warden-character';
-import { GLBOperatorCharacter } from './glb-operator-character';
+import { PlayerCharacter } from './player-character';
 import { ArenaGeometry, LevelLighting } from './arena-environment';
 
 export type { GameStatus, HudStats, InputState } from './game-simulation';
@@ -491,11 +491,11 @@ function SceneEntities(props: SceneProps & { level: LevelDef }) {
       )}
       {started && (
         <SceneErrorBoundary
-          context="Operator model"
+          context="Player model"
           fallback={<OperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />}
         >
           <Suspense fallback={<OperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />}>
-            <GLBOperatorCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />
+            <PlayerCharacter rootRef={playerRef} rigRef={rigRef} motionRef={motionRef} />
           </Suspense>
         </SceneErrorBoundary>
       )}
