@@ -42,6 +42,12 @@ button { font: inherit; }
 .hud-left-cluster { display: flex; gap: .55rem; align-items: flex-start; }
 .hud-right-cluster { display: flex; align-items: flex-start; gap: .55rem; }
 .vitals-panel { width: 286px; padding: .7rem .78rem .75rem; }
+.mobile-vitals { display: none; }
+.mobile-vital { display: inline-flex; align-items: baseline; gap: .12rem; color: hsl(var(--foreground)); font: 700 .58rem/1 var(--app-font-display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mobile-vital b { color: var(--vital-accent); font: 700 .58rem/1 var(--app-font-sans); }
+.mobile-health { --vital-accent: #ff8a80; }
+.mobile-shield { --vital-accent: #52cddd; }
+.mobile-energy { --vital-accent: #b18cff; }
 .panel-kicker { color: rgba(205,226,235,.64); font-size: .52rem; letter-spacing: .16em; text-transform: uppercase; white-space: nowrap; }
 .panel-id { float: right; color: rgba(205,226,235,.34); font-size: .45rem; letter-spacing: .1em; }
 .status-dot { display: inline-block; width: 5px; height: 5px; margin: 0 .38rem .08rem 0; background: hsl(var(--primary)); box-shadow: 0 0 8px hsl(var(--primary)); }
@@ -352,5 +358,11 @@ button { font: inherit; }
 @media (max-width: 700px), (pointer: coarse) {
   .hud-bottomline { bottom: 10.6rem !important; }
   .touch-actions { width: 200px; }
+}
+@media (max-width: 700px), (max-height: 520px) and (max-width: 980px) {
+  .radar-panel { display: none; }
+  .vitals-panel { width: max-content; min-width: 0; padding: .32rem .48rem; }
+  .desktop-vitals { display: none; }
+  .mobile-vitals { display: flex; align-items: center; gap: .48rem; }
 }
 .game-shell:has(> canvas.game-canvas) .crosshair { display: none; }

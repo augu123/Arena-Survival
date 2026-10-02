@@ -36,6 +36,7 @@ function formatTime(seconds: number) {
 }
 
 const pct = (value: number, max: number) => `${Math.max(0, Math.min(100, (value / Math.max(1, max)) * 100))}%`;
+const percentValue = (value: number, max: number) => Math.round(Math.max(0, Math.min(100, (value / Math.max(1, max)) * 100)));
 
 function Meter({ label, icon, value, max, tone }: { label: string; icon: string; value: number; max: number; tone: string }) {
   return (
@@ -241,14 +242,27 @@ function GameHome() {
               <div className="hud-topline">
                 <div className="hud-left-cluster">
                   <section className="hud-panel vitals-panel" data-testid="vitals-panel">
-                    <div className="panel-kicker"><span className="status-dot" />E. THORNE <span className="level-badge">LV {hud.charLevel}</span></div>
-                    <Meter label="Health" icon="+" value={hud.health} max={hud.maxHealth} tone="health" />
-                    <Meter label="Shield" icon="◇" value={hud.shield} max={hud.maxShield} tone="shield" />
-                    <Meter label="Energy" icon="◆" value={hud.energy} max={hud.maxEnergy} tone="energy" />
-                    <div className="xp-row">
-                      <span>XP</span>
-                      <div className="xp-track"><i style={{ width: pct(hud.xp, hud.xpNext) }} /></div>
-                      <b>{Math.floor(hud.xp)}/{hud.xpNext}</b>
+                    <div className="desktop-vitals">
+                      <div className="panel-kicker"><span className="status-dot" />E. THORNE <span className="level-badge">LV {hud.charLevel}</span></div>
+                      <Meter label="Health" icon="+" value={hud.health} max={hud.maxHealth} tone="health" />
+                      <Meter label="Shield" icon="◇" value={hud.shield} max={hud.maxShield} tone="shield" />
+                      <Meter label="Energy" icon="◆" value={hud.energy} max={hud.maxEnergy} tone="energy" />
+                      <div className="xp-row">
+                        <span>XP</span>
+                        <div className="xp-track"><i style={{ width: pct(hud.xp, hud.xpNext) }} /></div>
+                        <b>{Math.floor(hud.xp)}/{hud.xpNext}</b>
+                      </div>
+                    </div>
+                    <div className="mobile-vitals" role="group" aria-label="Player vitals">
+                      <span className="mobile-vital mobile-health" aria-label={`Health ${percentValue(hud.health, hud.maxHealth)} percent`}>
+                        <b>H</b>{percentValue(hud.health, hud.maxHealth)}%
+                      </span>
+                      <span className="mobile-vital mobile-shield" aria-label={`Shield ${percentValue(hud.shield, hud.maxShield)} percent`}>
+                        <b>S</b>{percentValue(hud.shield, hud.maxShield)}%
+                      </span>
+                      <span className="mobile-vital mobile-energy" aria-label={`Energy ${percentValue(hud.energy, hud.maxEnergy)} percent`}>
+                        <b>E</b>{percentValue(hud.energy, hud.maxEnergy)}%
+                      </span>
                     </div>
                   </section>
                 </div>
