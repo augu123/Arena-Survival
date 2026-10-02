@@ -6,3 +6,4 @@
 - [Campaign spawn verification](campaign-spawn-verification.md) — use real level flow; when headless WebGL is slow, pair simulation/HUD checks with a separate render check.
 - [Live Vite error checks](live-vite-error-checks.md) — after source reconciliation, inspect the active dev workflow; a stale built preview can hide transform errors.
 - [Mobile HUD scope](mobile-hud-scope.md) — keep the existing touch controls unchanged when compacting the mobile HUD.
+- [Optional scene assets](optional-scene-assets.md) — missing public assets can return HTML with status 200; don't probe their existence through binary loaders.
