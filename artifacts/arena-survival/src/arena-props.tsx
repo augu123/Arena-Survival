@@ -12,7 +12,11 @@ import * as THREE from 'three';
  * shows up on the next reload.
  */
 
-export type PropName = 'crate' | 'barrier' | 'pillar' | 'buttress' | 'wall_panel' | 'floor_vent' | 'toxic_drain' | 'light_tower';
+export type PropName =
+  | 'crate' | 'barrier' | 'pillar' | 'buttress' | 'wall_panel' | 'floor_vent' | 'toxic_drain' | 'light_tower'
+  // Second batch. Only barrel, wood_crate and landmark_pillar are placed so far;
+  // the rest are in the repo ready for features that will use them.
+  | 'barrel' | 'wood_crate' | 'landmark_pillar' | 'wall_arc' | 'stack_vent' | 'field_emitter' | 'arc_trap' | 'dome_segment' | 'floor_tile';
 
 const MODEL_URLS = import.meta.glob('@assets/models/*.glb', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
 
@@ -24,7 +28,7 @@ function propUrl(name: PropName) {
 const withMeshopt = (loader: GLTFLoader) => { loader.setMeshoptDecoder(MeshoptDecoder); };
 
 // Start downloading as soon as the game boots.
-for (const name of ['crate', 'barrier', 'pillar', 'buttress', 'toxic_drain', 'light_tower', 'floor_vent', 'wall_panel'] as PropName[]) {
+for (const name of ['crate', 'barrier', 'pillar', 'buttress', 'toxic_drain', 'light_tower', 'floor_vent', 'wall_panel', 'barrel', 'wood_crate', 'landmark_pillar'] as PropName[]) {
   const url = propUrl(name);
   if (url) useLoader.preload(GLTFLoader, url, withMeshopt);
 }

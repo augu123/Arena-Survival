@@ -365,7 +365,14 @@ export function ArenaGeometry({ level, engineRef }: { level: LevelDef; engineRef
           );
           return (
             <group key={index} position={[obstacle.x, 0, obstacle.z]} rotation={[0, (index * 1.37) % .5 - .25, 0]}>
-              <Prop name="crate" size={[s, s, obstacle.halfZ * 2]} maxStretch={1.35} fallback={procedural} />
+              {/* Mix three crate looks so cover doesn't read as copy-pasted. */}
+              {index % 3 === 1 ? (
+                <Prop name="barrel" size={[s * .85, s * 1.15, obstacle.halfZ * 2 * .85]} maxStretch={1} fallback={<Prop name="crate" size={[s, s, obstacle.halfZ * 2]} maxStretch={1.35} fallback={procedural} />} />
+              ) : index % 3 === 2 ? (
+                <Prop name="wood_crate" size={[s, s, obstacle.halfZ * 2]} maxStretch={1.1} fallback={<Prop name="crate" size={[s, s, obstacle.halfZ * 2]} maxStretch={1.35} fallback={procedural} />} />
+              ) : (
+                <Prop name="crate" size={[s, s, obstacle.halfZ * 2]} maxStretch={1.35} fallback={procedural} />
+              )}
             </group>
           );
         }
@@ -374,9 +381,9 @@ export function ArenaGeometry({ level, engineRef }: { level: LevelDef; engineRef
           return (
             <group key={index} position={[obstacle.x, 0, obstacle.z]}>
               <Prop
-                name="pillar"
+                name={index % 2 === 1 ? 'landmark_pillar' : 'pillar'}
                 size={[pillarRadius * 2, 4.4, pillarRadius * 2]}
-                maxStretch={1.4}
+                maxStretch={index % 2 === 1 ? 1.8 : 1.4}
                 fallback={(
                   <>
                     <Bevelled size={[pillarRadius * 2, 4.4, pillarRadius * 2]} radius={.06} material={materials.pillar} position={[0, 2.2, 0]} castShadow receiveShadow />
