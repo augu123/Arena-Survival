@@ -4,17 +4,13 @@ import { Bloom, EffectComposer, N8AO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { LEVELS, type LevelDef } from './game-levels';
 import {
-  ARC_TRAP_RADIUS,
   ARENA_CAR,
   DASH_DURATION,
-  PAD_CAPACITY,
-  PAD_RADIUS,
   currentLevel,
   stepGame,
   toHud,
   ventState,
   type Bullet,
-  type Emitter,
   type Engine,
   type Enemy,
   type Explosion,
@@ -42,9 +38,9 @@ import {
   TelegraphMesh,
   type OperatorMotion,
 } from './game-models';
-import { PylonLayer, ZapLayer } from './arena-devices';
 import { ArenaCarModel, ArenaCarPlaceholder } from './arena-car';
 import { MiniBossCharacter } from './mini-boss-character';
+import { MeleeCharacter } from './melee-character';
 import { WardenCharacter } from './warden-character';
 import { GLBOperatorCharacter } from './glb-operator-character';
 import { ArenaGeometry, LevelLighting } from './arena-environment';
@@ -196,12 +192,7 @@ function FlashLight({ engineRef }: { engineRef: MutableRefObject<Engine> }) {
     }
     const fade = latest.life / latest.duration;
     light.position.set(latest.x, 1.2, latest.z);
-    light.color.set(
-      latest.kind === 'frag' || latest.kind === 'stack' ? '#ff9a4a'
-        : latest.kind === 'fire' ? '#ff7c39'
-          : latest.kind === 'nova' || latest.kind === 'pylon' ? '#8ef1ff'
-            : latest.kind === 'levelup' ? '#ffd45e' : '#ff5a4f',
-    );
+    light.color.set(latest.kind === 'frag' ? '#ff9a4a' : latest.kind === 'fire' ? '#ff7c39' : latest.kind === 'nova' ? '#8ef1ff' : latest.kind === 'levelup' ? '#ffd45e' : '#ff5a4f');
     light.intensity = fade * 30;
   });
   return <pointLight ref={ref} intensity={0} distance={9} decay={2} />;
@@ -412,7 +403,6 @@ function SceneEntities(props: SceneProps & { level: LevelDef }) {
   const [telegraphs, setTelegraphs] = useState<Telegraph[]>([]);
   const [loot, setLoot] = useState<Loot[]>([]);
   const [floaters, setFloaters] = useState<Floater[]>([]);
-  const [emitters, setEmitters] = useState<Emitter[]>([]);
   const playerRef = useRef<THREE.Group | null>(null);
   const rigRef = useRef(createOperatorRig());
   const motionRef = useRef<OperatorMotion>(idleMotion());
@@ -435,7 +425,6 @@ function SceneEntities(props: SceneProps & { level: LevelDef }) {
       setTelegraphs([...game.telegraphs]);
       setLoot([...game.loot]);
       setFloaters([...game.floaters]);
-      setEmitters([...game.emitters]);
       heading.current = game.facing;
     }
     const dt = Math.min(rawDelta, .05);
@@ -450,7 +439,6 @@ function SceneEntities(props: SceneProps & { level: LevelDef }) {
       if (events.telegraphsChanged) setTelegraphs([...game.telegraphs]);
       if (events.lootChanged) setLoot([...game.loot]);
       if (events.floatersChanged) setFloaters([...game.floaters]);
-      if (events.emittersChanged) setEmitters([...game.emitters]);
     }
 
     // Face where you're running; snap to the crosshair while fighting (and briefly after).
@@ -520,8 +508,6 @@ function SceneEntities(props: SceneProps & { level: LevelDef }) {
       {telegraphs.map((telegraph) => <TelegraphMesh key={telegraph.id} telegraph={telegraph} tint={tint} />)}
       {loot.map((item) => <LootMesh key={item.id} loot={item} />)}
       {floaters.map((floater) => <FloaterLabel key={floater.id} floater={floater} />)}
-      <PylonLayer emitters={emitters} engineRef={engineRef} tint={tint} />
-      <ZapLayer engineRef={engineRef} />
       <LevelUpPillar engineRef={engineRef} />
       <ParticleField engineRef={engineRef} />
       <FlashLight engineRef={engineRef} />
@@ -606,6 +592,16 @@ function EnemyEntity({ enemy, tint }: { enemy: Enemy; tint: string }) {
       </SceneErrorBoundary>
     );
   }
+  if (enemy.kind === 'walker' || enemy.kind === 'runner') {
+    const fallback = <SleeperCharacter enemy={enemy} rootRef={rootRef} bossTint={tint} />;
+    return (
+      <SceneErrorBoundary context="Melee enemy model" fallback={fallback}>
+        <Suspense fallback={fallback}>
+          <MeleeCharacter enemy={enemy} />
+        </Suspense>
+      </SceneErrorBoundary>
+    );
+  }
   return <SleeperCharacter enemy={enemy} rootRef={rootRef} bossTint={tint} />;
 }
 
@@ -677,54 +673,9 @@ function FallbackScene(props: SceneProps) {
         ctx.fill();
       }
       for (const obstacle of level.obstacles) {
-        if (obstacle.kind === 'device') continue;
-        ctx.fillStyle = obstacle.kind === 'crate' ? '#6b4f35' : obstacle.kind === 'arc' ? '#59666c' : '#6a767c';
+        ctx.fillStyle = obstacle.kind === 'crate' ? '#6b4f35' : '#6a767c';
         ctx.fillRect(sx(obstacle.x - obstacle.halfX), sy(obstacle.z - obstacle.halfZ), obstacle.halfX * 2 * scale, obstacle.halfZ * 2 * scale);
       }
-      level.gates.forEach((angle, index) => {
-        const glow = game.gateGlow[index] ?? 0;
-        ctx.fillStyle = `rgba(255, 90, 60, ${.25 + glow * .7})`;
-        ctx.beginPath();
-        ctx.arc(sx(Math.cos(angle) * level.radius), sy(Math.sin(angle) * level.radius), 1.1 * scale, 0, Math.PI * 2);
-        ctx.fill();
-      });
-      for (const device of game.devices) {
-        const x = sx(device.x);
-        const y = sy(device.z);
-        if (device.kind === 'rechargePad') {
-          ctx.fillStyle = `rgba(125, 243, 196, ${.2 + (device.charge / PAD_CAPACITY) * .5})`;
-          ctx.fillRect(x - PAD_RADIUS * scale, y - PAD_RADIUS * scale, PAD_RADIUS * 2 * scale, PAD_RADIUS * 2 * scale);
-        } else if (device.kind === 'arcTrap') {
-          ctx.strokeStyle = `rgba(142, 241, 255, ${.2 + device.charge * .7 + device.cooldown * 2})`;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(x, y, ARC_TRAP_RADIUS * scale, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.fillStyle = '#8a969c';
-          ctx.fillRect(x - .5 * scale, y - .5 * scale, scale, scale);
-        } else {
-          ctx.fillStyle = device.cooldown > 0 ? '#4a5257' : `rgb(${150 + device.charge * 105}, ${120 - device.charge * 60}, 60)`;
-          ctx.beginPath();
-          ctx.arc(x, y, .6 * scale, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      for (const emitter of game.emitters) {
-        ctx.fillStyle = emitter.hitFlash > 0 ? '#ffffff' : '#8ef1ff';
-        ctx.beginPath();
-        ctx.arc(sx(emitter.x), sy(emitter.z), .5 * scale, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.strokeStyle = '#d8fbff';
-      ctx.lineWidth = 2;
-      for (const zap of game.zaps) {
-        ctx.globalAlpha = Math.max(0, zap.life / zap.duration);
-        ctx.beginPath();
-        ctx.moveTo(sx(zap.x1), sy(zap.z1));
-        ctx.lineTo(sx(zap.x2), sy(zap.z2));
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
       ctx.save();
       ctx.translate(sx(game.vehicle.x), sy(game.vehicle.z));
       ctx.rotate(-game.vehicle.heading);
