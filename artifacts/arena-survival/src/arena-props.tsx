@@ -40,6 +40,8 @@ type GroupProps = Omit<ThreeElements['group'], 'children'>;
 type FitProps = {
   /** Target box in metres (x, y, z) in the parent's axes. */
   size: [number, number, number];
+  /** Rotate the source model before measuring and fitting it into the target box. */
+  orient?: [number, number, number];
   /**
    * How far a single axis may be stretched past the uniform "fit inside"
    * scale. 1 = keep proportions exactly; Infinity = fill the box exactly.
@@ -51,18 +53,13 @@ type FitProps = {
   castShadow?: boolean;
 };
 
-function FittedModel({ url, size, maxStretch = Infinity, align = 'bottom', castShadow = true, ...group }: FitProps & GroupProps & { url: string }) {
+function FittedModel({ url, size, orient, maxStretch = Infinity, align = 'bottom', castShadow = true, ...group }: FitProps & GroupProps & { url: string }) {
   const gltf = useLoader(GLTFLoader, url, withMeshopt);
-
-  const bounds = useMemo(() => {
-    gltf.scene.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(gltf.scene);
-    return { size: box.getSize(new THREE.Vector3()), center: box.getCenter(new THREE.Vector3()), minY: box.min.y, maxY: box.max.y };
-  }, [gltf.scene]);
 
   // Clones share geometry, materials and textures with the cached original.
   const model = useMemo(() => {
     const clone = gltf.scene.clone(true);
+    if (orient) clone.rotation.set(...orient);
     clone.traverse((object) => {
       if (object instanceof THREE.Mesh) {
         object.castShadow = castShadow;
@@ -70,7 +67,13 @@ function FittedModel({ url, size, maxStretch = Infinity, align = 'bottom', castS
       }
     });
     return clone;
-  }, [gltf.scene, castShadow]);
+  }, [gltf.scene, castShadow, orient?.[0], orient?.[1], orient?.[2]]);
+
+  const bounds = useMemo(() => {
+    model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(model);
+    return { size: box.getSize(new THREE.Vector3()), center: box.getCenter(new THREE.Vector3()), minY: box.min.y, maxY: box.max.y };
+  }, [model]);
 
   const fit = useMemo(() => {
     const [tx, ty, tz] = size;

@@ -1,6 +1,6 @@
-import { Component, type MutableRefObject, type ReactNode, Suspense, useEffect, useMemo, useRef } from 'react';
+import { type MutableRefObject, useEffect, useMemo, useRef } from 'react';
 import { useFrame, type ThreeElements } from '@react-three/fiber';
-import { Environment } from '@react-three/drei';
+import { Environment, Lightformer } from '@react-three/drei';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { getConcreteTextures, getWoodTextures, tiledTexture } from './arena-textures';
@@ -470,11 +470,7 @@ function BarrierProcedural({ obstacle, materials }: { obstacle: Obstacle; materi
     </>
   );
 }
-
 // ── Lighting ────────────────────────────────────────────────────────────────
-
-/** Drop a 1K–2K equirectangular .hdr here to light the arena with your own HDRI. */
-const LOCAL_HDRI_URL = `${import.meta.env.BASE_URL}textures/arena_env.hdr`;
 
 export function LevelLighting({ level, engineRef }: { level: LevelDef; engineRef: MutableRefObject<Engine> }) {
   const keyRef = useRef<THREE.DirectionalLight>(null);
@@ -511,30 +507,13 @@ export function LevelLighting({ level, engineRef }: { level: LevelDef; engineRef
       />
       <directionalLight position={[-8, 7, -6]} intensity={.4} color={theme.rimLight} />
       <pointLight position={[0, 7, 0]} intensity={14} distance={level.radius * 2.2} color={theme.accentSoft} />
-      {/* Prefer a local HDRI; fall back to the CDN preset; play on without either. */}
-      <OptionalAsset
-        fallback={(
-          <OptionalAsset>
-            <Environment preset="warehouse" resolution={256} {...environment} />
-          </OptionalAsset>
-        )}
-      >
-        <Environment files={LOCAL_HDRI_URL} resolution={512} {...environment} />
-      </OptionalAsset>
+      {/* Generate reflections locally without requiring an HDR file or a CDN. */}
+      <Environment key={level.id} resolution={256} {...environment}>
+        <color attach="background" args={[theme.hemiGround]} />
+        <Lightformer form="rect" color={theme.hemiSky} intensity={2} position={[0, 8, 0]} rotation={[Math.PI / 2, 0, 0]} scale={[12, 12, 1]} />
+        <Lightformer form="rect" color={theme.keyLight} intensity={3} position={[6, 4, 8]} target={[0, 0, 0]} scale={[6, 4, 1]} />
+        <Lightformer form="rect" color={theme.rimLight} intensity={1.5} position={[-8, 3, -6]} target={[0, 0, 0]} scale={[5, 3, 1]} />
+      </Environment>
     </>
   );
-}
-
-class OptionalAsset extends Component<{ children: ReactNode; fallback?: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-  componentDidCatch(error: unknown) {
-    console.warn('Optional scene asset failed to load; continuing without it.', error);
-  }
-  render() {
-    if (this.state.failed) return this.props.fallback ?? null;
-    return <Suspense fallback={null}>{this.props.children}</Suspense>;
-  }
 }

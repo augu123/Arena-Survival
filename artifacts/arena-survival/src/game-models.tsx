@@ -703,6 +703,8 @@ const EXPLOSION_COLORS: Record<Explosion['kind'], { ring: string; core: string }
   fire: { ring: '#ff7130', core: '#fff0a3' },
   levelup: { ring: '#ffd45e', core: '#fff2b0' },
   melee: { ring: '#d8fbff', core: '#ffffff' },
+  stack: { ring: '#ffb347', core: '#ffe2a8' },
+  pylon: { ring: '#b88cff', core: '#e8dcff' },
 };
 
 export function ExplosionMesh({ explosion, tint }: { explosion: Explosion; tint?: string }) {
