@@ -1,5 +1,6 @@
 export const TEOWERINE_IDLE_CLIP = 'wait';
 export const TEOWERINE_WALK_CLIP = 'walk';
+export const TEOWERINE_ATTACK_CLIP = 'box_01';
 export const TEOWERINE_DANCE_CLIP = 'dance_01';
 export const TEOWERINE_CAST_CLIP = 'cast_a_spell';
 export const TEOWERINE_FALL_CLIP = 'fall';

@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import bossModelUrl from '@assets/models/teowerine-cosplay.glb?url';
 import type { Enemy } from './game-simulation';
 import {
+  TEOWERINE_ATTACK_CLIP,
   TEOWERINE_CAST_CLIP,
   TEOWERINE_CAST_CLIP_DURATION,
   TEOWERINE_CAST_TIME_SCALE,
@@ -21,6 +22,53 @@ import {
 // Start downloading as soon as the game boots, so the model is ready when it's first needed.
 useLoader.preload(GLTFLoader, bossModelUrl);
 
+const ATTACK_TIME_SCALE = 1.5;
+const LOCOMOTION_FADE = 6;
+
+/** Remove walk-cycle root motion because the simulation already moves Teowerine. */
+function prepareWalk(model: THREE.Object3D, clip: THREE.AnimationClip) {
+  const mixer = new THREE.AnimationMixer(model);
+  const action = mixer.clipAction(clip).play();
+  const pelvis = model.getObjectByName('pelvis') ?? model.getObjectByName('root') ?? model;
+  const start = new THREE.Vector3();
+  const end = new THREE.Vector3();
+  action.time = 0;
+  mixer.update(0);
+  model.updateMatrixWorld(true);
+  pelvis.getWorldPosition(start);
+  action.time = clip.duration - 1e-4;
+  mixer.update(0);
+  model.updateMatrixWorld(true);
+  pelvis.getWorldPosition(end);
+  mixer.stopAllAction();
+  mixer.uncacheRoot(model);
+  const travel = Math.hypot(end.x - start.x, end.z - start.z);
+
+  const inPlace = clip.clone();
+  let drifting: THREE.KeyframeTrack | null = null;
+  let largestDrift = 0;
+  for (const track of inPlace.tracks) {
+    if (!track.name.endsWith('.position')) continue;
+    const values = track.values;
+    const last = values.length - 3;
+    const drift = Math.hypot(values[last] - values[0], values[last + 1] - values[1], values[last + 2] - values[2]);
+    if (drift > largestDrift) {
+      largestDrift = drift;
+      drifting = track;
+    }
+  }
+  if (drifting) {
+    const { times, values } = drifting;
+    const last = values.length - 3;
+    const delta = [values[last] - values[0], values[last + 1] - values[1], values[last + 2] - values[2]];
+    for (let key = 0; key < times.length; key += 1) {
+      const progress = times[key] / clip.duration;
+      for (let axis = 0; axis < 3; axis += 1) values[key * 3 + axis] -= delta[axis] * progress;
+    }
+  }
+  return { clip: inPlace, speed: travel / clip.duration };
+}
+
 export function MiniBossCharacter({ enemy }: { enemy: Enemy }) {
   const gltf = useLoader(GLTFLoader, bossModelUrl);
   const character = useMemo(() => {
@@ -29,14 +77,17 @@ export function MiniBossCharacter({ enemy }: { enemy: Enemy }) {
     const bounds = new THREE.Box3().setFromObject(model);
     const size = bounds.getSize(new THREE.Vector3());
     const center = bounds.getCenter(new THREE.Vector3());
-    const idleClip = gltf.animations.find((clip) => clip.name === TEOWERINE_IDLE_CLIP);
-    const walkClip = gltf.animations.find((clip) => clip.name === TEOWERINE_WALK_CLIP);
-    const danceClip = gltf.animations.find((clip) => clip.name === TEOWERINE_DANCE_CLIP);
-    const castClip = gltf.animations.find((clip) => clip.name === TEOWERINE_CAST_CLIP);
-    const fallClip = gltf.animations.find((clip) => clip.name === TEOWERINE_FALL_CLIP);
-    if (!idleClip || !walkClip || !danceClip || !castClip || !fallClip) {
-      throw new Error('Teowerine GLB is missing a required wait, walk, dance, cast, or fall animation');
-    }
+    const find = (name: string) => {
+      const clip = gltf.animations.find((entry) => entry.name === name);
+      if (!clip) throw new Error(`Teowerine GLB is missing its "${name}" animation`);
+      return clip;
+    };
+    const idleClip = find(TEOWERINE_IDLE_CLIP);
+    const walkClip = find(TEOWERINE_WALK_CLIP);
+    const danceClip = find(TEOWERINE_DANCE_CLIP);
+    const castClip = find(TEOWERINE_CAST_CLIP);
+    const attackClip = find(TEOWERINE_ATTACK_CLIP);
+    const fallClip = find(TEOWERINE_FALL_CLIP);
     if (
       Math.abs(walkClip.duration - TEOWERINE_WALK_CLIP_DURATION) > .05
       || Math.abs(danceClip.duration - TEOWERINE_DANCE_CLIP_DURATION) > .05
@@ -50,18 +101,24 @@ export function MiniBossCharacter({ enemy }: { enemy: Enemy }) {
         object.receiveShadow = true;
       }
     });
+    const scale = (enemy.scale * 1.45) / Math.max(size.y, .001);
+    const walk = prepareWalk(model, walkClip);
     const mixer = new THREE.AnimationMixer(model);
+    const attackAction = mixer.clipAction(attackClip);
+    attackAction.setLoop(THREE.LoopOnce, 1);
+    attackAction.clampWhenFinished = true;
 
     return {
       model,
-      scale: (enemy.scale * 1.45) / Math.max(size.y, .001),
+      scale,
       offset: new THREE.Vector3(-center.x, -bounds.min.y, -center.z),
       mixer,
       actions: {
         idle: mixer.clipAction(idleClip),
-        walk: mixer.clipAction(walkClip),
+        walk: mixer.clipAction(walk.clip),
         dance: mixer.clipAction(danceClip),
         cast: mixer.clipAction(castClip),
+        attack: attackAction,
         fall: mixer.clipAction(fallClip),
       },
       idleClip,
@@ -69,62 +126,130 @@ export function MiniBossCharacter({ enemy }: { enemy: Enemy }) {
       danceClip,
       castClip,
       fallClip,
+      walkSpeed: Math.max(.1, walk.speed * scale),
     };
   }, [enemy.scale, gltf.animations, gltf.scene]);
+  useEffect(() => () => {
+    character.mixer.stopAllAction();
+    character.mixer.uncacheRoot(character.model);
+  }, [character]);
   const rootRef = useRef<THREE.Group>(null);
   const healthFillRef = useRef<THREE.Mesh>(null);
   const healthMaterialRef = useRef<THREE.MeshStandardMaterial>(null);
-  const animationState = useRef<{ kind: 'idle' | 'walk' | 'dance' | 'cast' | 'fall'; sequence: number }>({ kind: 'idle', sequence: -1 });
+  const animationState = useRef<{ kind: 'locomotion' | 'dance' | 'cast' | 'fall'; sequence: number }>({ kind: 'locomotion', sequence: -1 });
+  const motion = useRef({
+    phase: enemy.phase,
+    x: enemy.x,
+    z: enemy.z,
+    heading: Math.atan2(enemy.facingX, enemy.facingZ),
+    speed: 0,
+    walkWeight: 0,
+    attack: 0,
+    lastPulse: 0,
+    started: false,
+  });
 
   useFrame(() => {
+    const state = motion.current;
+    // Tie mixer time to simulation time so pause and frame-rate changes stay deterministic.
+    const simDt = Math.max(0, (enemy.phase - state.phase) / (2.6 + enemy.speed));
+    state.phase = enemy.phase;
+    const dt = Math.min(simDt, .1);
     const dead = enemy.death > 0;
     const dancing = !dead && enemy.danceTimer > 0;
     const casting = !dead && !dancing && enemy.castTimer > 0;
-    const walking = !dead && !dancing && !casting && enemy.moveBlend > .08;
-    const kind = dead ? 'fall' : dancing ? 'dance' : casting ? 'cast' : walking ? 'walk' : 'idle';
+    const kind = dead ? 'fall' : dancing ? 'dance' : casting ? 'cast' : 'locomotion';
     const sequence = kind === 'dance' ? enemy.danceSequence : kind === 'cast' ? enemy.castSequence : 0;
-    if (animationState.current.kind !== kind || animationState.current.sequence !== sequence) {
+    if (
+      animationState.current.kind !== kind
+      || animationState.current.sequence !== sequence
+      || (kind === 'locomotion' && !state.started)
+    ) {
       character.mixer.stopAllAction();
-      const action = character.actions[kind];
-      action.reset();
-      const looping = kind === 'idle' || kind === 'walk';
-      action.setLoop(looping ? THREE.LoopRepeat : THREE.LoopOnce, looping ? Infinity : 1);
-      action.clampWhenFinished = !looping;
-      action.setEffectiveWeight(1);
-      action.setEffectiveTimeScale(kind === 'dance'
-        ? TEOWERINE_DANCE_TIME_SCALE
-        : kind === 'cast'
-          ? TEOWERINE_CAST_TIME_SCALE
-          : 1);
-      action.play();
+      if (kind === 'locomotion') {
+        for (const action of [character.actions.idle, character.actions.walk, character.actions.attack]) {
+          action.reset();
+          action.setEffectiveWeight(0);
+          action.play();
+        }
+        state.walkWeight = 0;
+        state.attack = 0;
+        state.started = true;
+      } else {
+        const action = character.actions[kind];
+        action.reset();
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+        action.setEffectiveWeight(1);
+        action.setEffectiveTimeScale(kind === 'dance'
+          ? TEOWERINE_DANCE_TIME_SCALE
+          : kind === 'cast'
+            ? TEOWERINE_CAST_TIME_SCALE
+            : 1);
+        action.play();
+        state.lastPulse = enemy.attackPulse;
+      }
       animationState.current = { kind, sequence };
     }
 
-    const action = character.actions[kind];
-    if (kind === 'fall') {
-      action.time = Math.min(enemy.death, character.fallClip.duration);
-    } else if (kind === 'dance') {
-      action.time = THREE.MathUtils.clamp(
-        (TEOWERINE_DANCE_CLIP_DURATION / TEOWERINE_DANCE_TIME_SCALE - enemy.danceTimer) * TEOWERINE_DANCE_TIME_SCALE,
-        0,
-        character.danceClip.duration,
-      );
-    } else if (kind === 'cast') {
-      action.time = THREE.MathUtils.clamp(
-        (TEOWERINE_CAST_CLIP_DURATION / TEOWERINE_CAST_TIME_SCALE - enemy.castTimer) * TEOWERINE_CAST_TIME_SCALE,
-        0,
-        character.castClip.duration,
-      );
-    } else if (kind === 'walk') {
-      action.time = (enemy.phase * 1.25) % character.walkClip.duration;
+    if (kind === 'locomotion') {
+      // Smooth ground-speed measurement so the walk cycle stays in step around corners.
+      if (dt > 0) {
+        const measured = Math.hypot(enemy.x - state.x, enemy.z - state.z) / dt;
+        state.speed += (Math.min(measured, enemy.speed * 1.6) - state.speed) * (1 - Math.exp(-dt * 8));
+      }
+      const moving = enemy.moveBlend > .05 && state.speed > .08 ? 1 : 0;
+      state.walkWeight += (moving - state.walkWeight) * (1 - Math.exp(-dt * LOCOMOTION_FADE));
+
+      if (enemy.attackPulse > state.lastPulse + .05) {
+        character.actions.attack.reset();
+        character.actions.attack.setEffectiveTimeScale(ATTACK_TIME_SCALE);
+        character.actions.attack.play();
+        state.attack = 1;
+      }
+      state.lastPulse = enemy.attackPulse;
+      const attackRemaining = character.actions.attack.isRunning()
+        ? (character.actions.attack.getClip().duration - character.actions.attack.time) / ATTACK_TIME_SCALE
+        : 0;
+      const attackTarget = attackRemaining > .2 ? 1 : 0;
+      state.attack += (attackTarget - state.attack) * (1 - Math.exp(-dt * (attackTarget ? 14 : 6)));
+
+      const locomotion = 1 - state.attack;
+      character.actions.attack.setEffectiveWeight(state.attack);
+      character.actions.walk.setEffectiveWeight(state.walkWeight * locomotion);
+      character.actions.idle.setEffectiveWeight((1 - state.walkWeight) * locomotion);
+      character.actions.walk.setEffectiveTimeScale(THREE.MathUtils.clamp(state.speed / character.walkSpeed, .55, 1.6));
+      character.mixer.update(dt);
     } else {
-      action.time = enemy.phase % character.idleClip.duration;
+      const action = character.actions[kind];
+      if (kind === 'fall') {
+        action.time = Math.min(enemy.death, character.fallClip.duration);
+      } else if (kind === 'dance') {
+        action.time = THREE.MathUtils.clamp(
+          (TEOWERINE_DANCE_CLIP_DURATION / TEOWERINE_DANCE_TIME_SCALE - enemy.danceTimer) * TEOWERINE_DANCE_TIME_SCALE,
+          0,
+          character.danceClip.duration,
+        );
+      } else {
+        action.time = THREE.MathUtils.clamp(
+          (TEOWERINE_CAST_CLIP_DURATION / TEOWERINE_CAST_TIME_SCALE - enemy.castTimer) * TEOWERINE_CAST_TIME_SCALE,
+          0,
+          character.castClip.duration,
+        );
+      }
+      state.lastPulse = enemy.attackPulse;
+      character.mixer.update(0);
     }
-    character.mixer.update(0);
+
+    state.x = enemy.x;
+    state.z = enemy.z;
+    const target = Math.atan2(enemy.facingX, enemy.facingZ);
+    const turn = Math.atan2(Math.sin(target - state.heading), Math.cos(target - state.heading));
+    state.heading += turn * (1 - Math.exp(-dt * (dancing ? 4 : 7)));
 
     if (rootRef.current) {
       rootRef.current.position.set(enemy.x, .02, enemy.z);
-      rootRef.current.rotation.y = Math.atan2(enemy.facingX, enemy.facingZ);
+      rootRef.current.rotation.y = state.heading;
     }
     const ratio = THREE.MathUtils.clamp(enemy.health / enemy.maxHealth, 0, 1);
     if (healthFillRef.current) {
