@@ -6,6 +6,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { getConcreteTextures, getWoodTextures, tiledTexture } from './arena-textures';
 import { ARENA_SURFACES, upgradeMaterialTextures } from './real-textures';
 import { Prop, getGlowTexture } from './arena-props';
+import { ArcWall, DeviceLayer, GateLayer } from './arena-devices';
 import type { Hazard, LevelDef, Obstacle } from './game-levels';
 import { ventState, type Engine } from './game-simulation';
 
@@ -352,6 +353,9 @@ export function ArenaGeometry({ level, engineRef }: { level: LevelDef; engineRef
       ))}
 
       {level.obstacles.map((obstacle, index) => {
+        // Curved walls draw one model per wall; devices are drawn by DeviceLayer.
+        if (obstacle.kind === 'arc') return obstacle.render ? <ArcWall key={index} obstacle={obstacle} fallbackMaterial={materials.barrier} /> : null;
+        if (obstacle.kind === 'device') return null;
         if (obstacle.kind === 'crate') {
           const s = obstacle.halfX * 2;
           const procedural = (
@@ -424,6 +428,8 @@ export function ArenaGeometry({ level, engineRef }: { level: LevelDef; engineRef
       {level.hazards.map((hazard, index) => (
         <HazardMesh key={`${level.id}-hazard-${index}`} hazard={hazard} engineRef={engineRef} accent={level.theme.accent} />
       ))}
+      <DeviceLayer level={level} engineRef={engineRef} />
+      <GateLayer level={level} engineRef={engineRef} />
     </group>
   );
 }

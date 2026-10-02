@@ -366,3 +366,13 @@ button { font: inherit; }
   .mobile-vitals { display: flex; align-items: center; gap: .48rem; }
 }
 .game-shell:has(> canvas.game-canvas) .crosshair { display: none; }
+
+/* Boss shield pylons */
+.radar-blip.pylon { width: 8px; height: 8px; background: #8ef1ff; box-shadow: 0 0 10px #8ef1ff; transform: translate(-50%,-50%) rotate(45deg); }
+.boss-panel.is-shielded .boss-track { border-color: rgba(142,241,255,.75); box-shadow: 0 0 14px rgba(142,241,255,.35); }
+.boss-panel.is-shielded .boss-track i { background: linear-gradient(90deg, #4f7c8c, #8ef1ff); box-shadow: 0 0 14px rgba(142,241,255,.6); }
+.boss-shield { display: flex; align-items: center; justify-content: center; gap: .45rem; margin-top: .35rem; color: rgba(210,248,255,.85); font-size: .5rem; letter-spacing: .18em; text-transform: uppercase; }
+.boss-shield b { color: #8ef1ff; font: 800 .72rem var(--app-font-display); letter-spacing: .16em; animation: pip-pulse 1s ease-in-out infinite; }
+.pylon-pips { display: inline-flex; gap: 4px; }
+.pylon-pips i { width: 7px; height: 7px; background: #8ef1ff; box-shadow: 0 0 8px #8ef1ff; transform: rotate(45deg); }
+.hazard-warning.is-positive { color: #7df3c4; text-shadow: 0 0 10px rgba(80,230,170,.75); animation: none; }
