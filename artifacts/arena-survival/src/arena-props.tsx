@@ -24,7 +24,7 @@ function propUrl(name: PropName) {
 const withMeshopt = (loader: GLTFLoader) => { loader.setMeshoptDecoder(MeshoptDecoder); };
 
 // Start downloading as soon as the game boots.
-for (const name of ['crate', 'barrier', 'pillar', 'buttress', 'toxic_drain', 'light_tower'] as PropName[]) {
+for (const name of ['crate', 'barrier', 'pillar', 'buttress', 'toxic_drain', 'light_tower', 'floor_vent', 'wall_panel'] as PropName[]) {
   const url = propUrl(name);
   if (url) useLoader.preload(GLTFLoader, url, withMeshopt);
 }
@@ -39,15 +39,19 @@ type FitProps = {
    * scale. 1 = keep proportions exactly; Infinity = fill the box exactly.
    */
   maxStretch?: number;
+  /** Which part of the model sits on the origin: its base (default) or its top (for props sunk into the floor). */
+  align?: 'bottom' | 'top';
+  /** Turn off for big background pieces that only need to receive shadows. */
+  castShadow?: boolean;
 };
 
-function FittedModel({ url, size, maxStretch = Infinity, ...group }: FitProps & GroupProps & { url: string }) {
+function FittedModel({ url, size, maxStretch = Infinity, align = 'bottom', castShadow = true, ...group }: FitProps & GroupProps & { url: string }) {
   const gltf = useLoader(GLTFLoader, url, withMeshopt);
 
   const bounds = useMemo(() => {
     gltf.scene.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(gltf.scene);
-    return { size: box.getSize(new THREE.Vector3()), center: box.getCenter(new THREE.Vector3()), minY: box.min.y };
+    return { size: box.getSize(new THREE.Vector3()), center: box.getCenter(new THREE.Vector3()), minY: box.min.y, maxY: box.max.y };
   }, [gltf.scene]);
 
   // Clones share geometry, materials and textures with the cached original.
@@ -55,12 +59,12 @@ function FittedModel({ url, size, maxStretch = Infinity, ...group }: FitProps & 
     const clone = gltf.scene.clone(true);
     clone.traverse((object) => {
       if (object instanceof THREE.Mesh) {
-        object.castShadow = true;
+        object.castShadow = castShadow;
         object.receiveShadow = true;
       }
     });
     return clone;
-  }, [gltf.scene]);
+  }, [gltf.scene, castShadow]);
 
   const fit = useMemo(() => {
     const [tx, ty, tz] = size;
@@ -79,7 +83,7 @@ function FittedModel({ url, size, maxStretch = Infinity, ...group }: FitProps & 
     <group {...group}>
       <group scale={fit.scale}>
         <group rotation={[0, fit.swap ? Math.PI / 2 : 0, 0]}>
-          <primitive object={model} position={[-bounds.center.x, -bounds.minY, -bounds.center.z]} />
+          <primitive object={model} position={[-bounds.center.x, align === 'top' ? -bounds.maxY : -bounds.minY, -bounds.center.z]} />
         </group>
       </group>
     </group>

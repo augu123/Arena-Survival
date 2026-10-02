@@ -132,6 +132,7 @@ function HazardMesh({ hazard, engineRef, accent }: { hazard: Hazard; engineRef: 
   const glowRef = useRef<THREE.MeshStandardMaterial>(null);
   const flameRef = useRef<THREE.Mesh>(null);
   const flameMaterialRef = useRef<THREE.MeshBasicMaterial>(null);
+  const ventGlowRef = useRef<THREE.MeshBasicMaterial>(null);
   useFrame(({ clock }) => {
     const time = engineRef.current.time;
     if (hazard.kind === 'toxic') {
@@ -140,6 +141,8 @@ function HazardMesh({ hazard, engineRef, accent }: { hazard: Hazard; engineRef: 
     }
     const vent = ventState(hazard, time);
     if (glowRef.current) glowRef.current.emissiveIntensity = vent.state === 'active' ? 3.2 : vent.state === 'warn' ? .4 + vent.intensity * 2 * (.6 + Math.sin(clock.elapsedTime * 22) * .4) : .15;
+    // Additive heat glow over the GLB grate: faint idle, flickering warning, full blast when active.
+    if (ventGlowRef.current) ventGlowRef.current.opacity = vent.state === 'active' ? .95 : vent.state === 'warn' ? .12 + vent.intensity * .55 * (.6 + Math.sin(clock.elapsedTime * 22) * .4) : .06;
     if (flameRef.current && flameMaterialRef.current) {
       flameRef.current.visible = vent.state === 'active';
       flameRef.current.scale.set(hazard.radius * .8, 3 + Math.sin(clock.elapsedTime * 30) * .4, hazard.radius * .8);
@@ -171,8 +174,8 @@ function HazardMesh({ hazard, engineRef, accent }: { hazard: Hazard; engineRef: 
       </group>
     );
   }
-  return (
-    <group position={[hazard.x, .012, hazard.z]}>
+  const procedural = (
+    <>
       <mesh rotation={[-Math.PI / 2, 0, 0]}>
         <circleGeometry args={[hazard.radius, 32]} />
         <meshStandardMaterial color="#1a1512" roughness={.7} metalness={.6} />
@@ -187,6 +190,28 @@ function HazardMesh({ hazard, engineRef, accent }: { hazard: Hazard; engineRef: 
           <meshStandardMaterial color="#2b2522" metalness={.7} roughness={.4} />
         </mesh>
       ))}
+    </>
+  );
+  // The vent model is sunk into the floor so only its rim and grate show
+  // (top ~22 cm, enough to keep the recessed grate above the floor plane), which avoids squashing it to floor height.
+  const ventTop = .22;
+  const heatGlow = (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, ventTop + .01, 0]}>
+      <circleGeometry args={[hazard.radius * .85, 40]} />
+      <meshBasicMaterial ref={ventGlowRef} color={accent} transparent opacity={.06} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
+    </mesh>
+  );
+  return (
+    <group position={[hazard.x, .012, hazard.z]}>
+      <Prop
+        name="floor_vent"
+        position={[0, ventTop, 0]}
+        align="top"
+        size={[hazard.radius * 2.6, 10, hazard.radius * 2.6]}
+        maxStretch={1}
+        fallback={procedural}
+        overlay={heatGlow}
+      />
       <mesh ref={flameRef} position={[0, 1.5, 0]} visible={false}>
         <cylinderGeometry args={[.35, 1, 1, 18, 1, true]} />
         <meshBasicMaterial ref={flameMaterialRef} color="#ff8a3d" transparent opacity={.6} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
@@ -206,6 +231,27 @@ export function ArenaGeometry({ level, engineRef }: { level: LevelDef; engineRef
     return { angle, x: Math.cos(angle) * (wallRadius - .12), z: Math.sin(angle) * (wallRadius - .12) };
   }), [wallRadius]);
   const towers = [Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4];
+  const panels = useMemo(() => {
+    const bays = 40;
+    const rows = 3;
+    const rowHeight = 3.4 / rows;
+    const panelRadius = wallRadius - .1;
+    const chord = 2 * panelRadius * Math.sin(Math.PI / bays);
+    return Array.from({ length: bays * rows }, (_, i) => {
+      const bay = i % bays;
+      const row = Math.floor(i / bays);
+      const angle = ((bay + .5) / bays) * Math.PI * 2;
+      return {
+        key: i,
+        position: [Math.cos(angle) * panelRadius, row * rowHeight + rowHeight / 2, Math.sin(angle) * panelRadius] as [number, number, number],
+        // Local +z (the panel's face) points at the arena centre.
+        yaw: Math.atan2(-Math.cos(angle), -Math.sin(angle)),
+        // Every so often a panel is hung upside down so the bolt pattern doesn't repeat.
+        flip: (bay * 7 + row * 3) % 5 === 0,
+        size: [chord, rowHeight - .02, .19] as [number, number, number],
+      };
+    });
+  }, [wallRadius]);
 
   return (
     <group>
@@ -239,8 +285,15 @@ export function ArenaGeometry({ level, engineRef }: { level: LevelDef; engineRef
         <ringGeometry args={[wallRadius - .05, wallRadius + .5, 96]} />
         <primitive object={materials.crown} attach="material" />
       </mesh>
+      {panels.map((panel) => (
+        <group key={panel.key} position={panel.position} rotation={[0, panel.yaw, 0]}>
+          <group rotation={[0, 0, panel.flip ? Math.PI : 0]}>
+            <Prop name="wall_panel" position={[0, -panel.size[1] / 2, 0]} size={panel.size} castShadow={false} />
+          </group>
+        </group>
+      ))}
       <mesh position={[0, 2.95, 0]}>
-        <cylinderGeometry args={[wallRadius - .03, wallRadius - .03, .07, 96, 1, true]} />
+        <cylinderGeometry args={[wallRadius - .22, wallRadius - .22, .07, 96, 1, true]} />
         <meshBasicMaterial color={level.theme.accent} toneMapped={false} side={THREE.BackSide} />
       </mesh>
       {buttresses.map(({ angle, x, z }, index) => (
