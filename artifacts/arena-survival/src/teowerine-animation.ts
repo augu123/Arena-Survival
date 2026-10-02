@@ -1,3 +1,6 @@
+export const TEOWERINE_IDLE_CLIP = 'wait';
+export const TEOWERINE_WALK_CLIP = 'walk';
+export const TEOWERINE_ATTACK_CLIP = 'box_01';
 export const TEOWERINE_DANCE_CLIP = 'dance_01';
 export const TEOWERINE_FALL_CLIP = 'fall';
 export const TEOWERINE_DANCE_CLIP_DURATION = 23.167;
