@@ -5,11 +5,16 @@ import * as THREE from 'three';
  * surfaces and the wooden supply crates. Generated once on canvas and cached
  * as module singletons so every wall/floor/obstacle segment can reuse (and
  * independently tile) the same base maps without refetching or re-painting.
+ *
+ * These are the fallback look. Real photographed sets in public/textures/
+ * replace them at runtime (see real-textures.ts).
  */
 
 type TextureSet = {
   map: THREE.CanvasTexture;
+  /** Kept for older callers; materials should prefer normalMap. */
   bumpMap: THREE.CanvasTexture;
+  normalMap: THREE.CanvasTexture;
   roughnessMap: THREE.CanvasTexture;
 };
 
@@ -38,15 +43,17 @@ function paintConcreteBase(
 ) {
   const { panels = 4, jointColor = 'rgba(4,8,11,.32)', noiseAlpha = .05, seed = 7 } = options;
   const rand = mulberry32(seed);
+  const k = size / 512; // keep feature sizes constant when resolution changes
 
   ctx.fillStyle = baseColor;
   ctx.fillRect(0, 0, size, size);
 
   // Fine speckled mottling — the "smooth but not perfectly flat" cast-concrete look.
-  for (let i = 0; i < 1400; i += 1) {
+  const speckles = Math.round(1400 * k * k);
+  for (let i = 0; i < speckles; i += 1) {
     const x = rand() * size;
     const y = rand() * size;
-    const r = rand() * 9 + 1.5;
+    const r = (rand() * 9 + 1.5) * k;
     const light = rand() > .5;
     ctx.fillStyle = `rgba(${light ? 255 : 0},${light ? 255 : 0},${light ? 255 : 0},${(rand() * noiseAlpha).toFixed(3)})`;
     ctx.beginPath();
@@ -54,19 +61,47 @@ function paintConcreteBase(
     ctx.fill();
   }
 
+  // Tiny pores/pits — the detail that sells concrete up close.
+  const pores = Math.round(900 * k * k);
+  for (let i = 0; i < pores; i += 1) {
+    ctx.fillStyle = `rgba(0,0,0,${(.08 + rand() * noiseAlpha * 2).toFixed(3)})`;
+    ctx.beginPath();
+    ctx.arc(rand() * size, rand() * size, (rand() * 1.2 + .4) * k, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // Broad soft cloud shading so large panels don't read as a flat fill.
-  for (let i = 0; i < 5; i += 1) {
+  for (let i = 0; i < 7; i += 1) {
     const x = rand() * size;
     const y = rand() * size;
     const r = size * (.25 + rand() * .3);
     const gradient = ctx.createRadialGradient(x, y, 0, x, y, r);
     const dark = rand() > .5;
-    gradient.addColorStop(0, `rgba(${dark ? 0 : 255},${dark ? 0 : 255},${dark ? 0 : 255},${dark ? .05 : .04})`);
+    gradient.addColorStop(0, `rgba(${dark ? 0 : 255},${dark ? 0 : 255},${dark ? 0 : 255},${dark ? .06 : .04})`);
     gradient.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  // Hairline cracks wandering across some panels.
+  ctx.strokeStyle = jointColor;
+  ctx.lineWidth = Math.max(1, .8 * k);
+  for (let i = 0; i < 6; i += 1) {
+    let x = rand() * size;
+    let y = rand() * size;
+    let angle = rand() * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    const segments = 8 + Math.floor(rand() * 10);
+    for (let s = 0; s < segments; s += 1) {
+      angle += (rand() - .5) * .9;
+      x += Math.cos(angle) * 9 * k;
+      y += Math.sin(angle) * 9 * k;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
   }
 
   // Formwork panel joints — the modular seams described in the brief.
@@ -94,10 +129,10 @@ function paintConcreteBase(
   }
 
   // Faint vertical streaking (weathering / rain-runoff staining).
-  ctx.globalAlpha = .05;
-  for (let i = 0; i < 10; i += 1) {
+  ctx.globalAlpha = .06;
+  for (let i = 0; i < 14; i += 1) {
     const x = rand() * size;
-    const width = 2 + rand() * 6;
+    const width = (2 + rand() * 6) * k;
     const streak = ctx.createLinearGradient(0, 0, 0, size);
     streak.addColorStop(0, 'rgba(0,0,0,0)');
     streak.addColorStop(1, 'rgba(0,0,0,.6)');
@@ -120,7 +155,6 @@ function paintWoodBase(ctx: CanvasRenderingContext2D, size: number, seed = 3) {
     ctx.fillStyle = `rgba(${Math.round(148 * tint)},${Math.round(112 * tint)},${Math.round(76 * tint)},1)`;
     ctx.fillRect(0, y, size, plankHeight);
 
-    // Grain lines running along the plank.
     ctx.strokeStyle = 'rgba(70,46,26,.28)';
     ctx.lineWidth = 1;
     for (let g = 0; g < 8; g += 1) {
@@ -132,12 +166,10 @@ function paintWoodBase(ctx: CanvasRenderingContext2D, size: number, seed = 3) {
       }
       ctx.stroke();
     }
-    // Plank seam.
     ctx.strokeStyle = 'rgba(35,22,12,.55)';
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y); ctx.stroke();
 
-    // A couple of small knots.
     for (let k = 0; k < 2; k += 1) {
       const kx = rand() * size;
       const ky = y + plankHeight * .5 + (rand() - .5) * plankHeight * .4;
@@ -149,7 +181,6 @@ function paintWoodBase(ctx: CanvasRenderingContext2D, size: number, seed = 3) {
     }
   }
 
-  // Corner metal brackets, echoing the reinforced crates in the reference art.
   const bracket = size * .16;
   ctx.fillStyle = 'rgba(30,34,36,.85)';
   [[0, 0], [size - bracket, 0], [0, size - bracket], [size - bracket, size - bracket]].forEach(([x, y]) => {
@@ -158,11 +189,47 @@ function paintWoodBase(ctx: CanvasRenderingContext2D, size: number, seed = 3) {
   });
 }
 
+/**
+ * Turns a painted height canvas into a tangent-space (OpenGL convention)
+ * normal map with a wrapping Sobel filter, so seams, pits and cracks catch
+ * light from the HDRI the same way the GLB models' baked normals do.
+ */
+function heightToNormal(source: HTMLCanvasElement, strength: number) {
+  const size = source.width;
+  const src = source.getContext('2d')!.getImageData(0, 0, size, size).data;
+  const height = new Float32Array(size * size);
+  for (let i = 0; i < size * size; i += 1) height[i] = src[i * 4] / 255;
+
+  const out = makeCanvas(size);
+  const ctx = out.getContext('2d')!;
+  const image = ctx.createImageData(size, size);
+  const at = (x: number, y: number) => height[((y + size) % size) * size + ((x + size) % size)];
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const dx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
+      const dy = (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
+      // Canvas rows run downward while texture V runs upward, hence +dy.
+      let nx = -dx * strength;
+      let ny = dy * strength;
+      let nz = 1;
+      const len = Math.hypot(nx, ny, nz);
+      nx /= len; ny /= len; nz /= len;
+      const o = (y * size + x) * 4;
+      image.data[o] = Math.round((nx * .5 + .5) * 255);
+      image.data[o + 1] = Math.round((ny * .5 + .5) * 255);
+      image.data[o + 2] = Math.round((nz * .5 + .5) * 255);
+      image.data[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  return out;
+}
+
 function finalizeTexture(canvas: HTMLCanvasElement, colorManaged: boolean) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.anisotropy = 4;
+  texture.anisotropy = 8;
   texture.colorSpace = colorManaged ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   texture.needsUpdate = true;
   return texture;
@@ -173,24 +240,26 @@ let woodCache: TextureSet | null = null;
 
 export function getConcreteTextures(): TextureSet {
   if (concreteCache) return concreteCache;
-  const size = 512;
+  const size = 1024;
 
   const diffuseCanvas = makeCanvas(size);
   paintConcreteBase(diffuseCanvas.getContext('2d')!, size, '#48525a', { panels: 4, noiseAlpha: .07, seed: 11 });
 
+  // Height pass shares the diffuse seed so pits, cracks and seams line up.
   const bumpCanvas = makeCanvas(size);
   paintConcreteBase(bumpCanvas.getContext('2d')!, size, '#9aa4aa', {
-    panels: 4, jointColor: 'rgba(0,0,0,.6)', noiseAlpha: .14, seed: 23,
+    panels: 4, jointColor: 'rgba(0,0,0,.6)', noiseAlpha: .14, seed: 11,
   });
 
   const roughCanvas = makeCanvas(size);
   paintConcreteBase(roughCanvas.getContext('2d')!, size, '#cfd5d8', {
-    panels: 4, jointColor: 'rgba(255,255,255,.1)', noiseAlpha: .1, seed: 41,
+    panels: 4, jointColor: 'rgba(255,255,255,.1)', noiseAlpha: .1, seed: 11,
   });
 
   concreteCache = {
     map: finalizeTexture(diffuseCanvas, true),
     bumpMap: finalizeTexture(bumpCanvas, false),
+    normalMap: finalizeTexture(heightToNormal(bumpCanvas, 3), false),
     roughnessMap: finalizeTexture(roughCanvas, false),
   };
   return concreteCache;
@@ -198,14 +267,13 @@ export function getConcreteTextures(): TextureSet {
 
 export function getWoodTextures(): TextureSet {
   if (woodCache) return woodCache;
-  const size = 256;
+  const size = 512;
 
   const diffuseCanvas = makeCanvas(size);
   paintWoodBase(diffuseCanvas.getContext('2d')!, size, 5);
 
   const bumpCanvas = makeCanvas(size);
   paintWoodBase(bumpCanvas.getContext('2d')!, size, 5);
-  // Boost contrast on the bump pass so grain reads as real relief.
   const bumpCtx = bumpCanvas.getContext('2d')!;
   bumpCtx.globalCompositeOperation = 'saturation';
   bumpCtx.fillStyle = '#808080';
@@ -218,6 +286,7 @@ export function getWoodTextures(): TextureSet {
   woodCache = {
     map: finalizeTexture(diffuseCanvas, true),
     bumpMap: finalizeTexture(bumpCanvas, false),
+    normalMap: finalizeTexture(heightToNormal(bumpCanvas, 2), false),
     roughnessMap: finalizeTexture(roughCanvas, false),
   };
   return woodCache;
