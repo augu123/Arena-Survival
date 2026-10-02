@@ -4,7 +4,30 @@
 
 export type EnemyKind = 'walker' | 'runner' | 'brute' | 'spitter' | 'teowerine' | 'boss';
 
-export type Obstacle = { x: number; z: number; halfX: number; halfZ: number; kind: 'barrier' | 'crate' | 'pillar' };
+export type ObstacleKind = 'barrier' | 'crate' | 'pillar' | 'arc' | 'device';
+
+/**
+ * Axis-aligned collision box. Curved `arc` walls and level devices are built
+ * from several of these; `render` carries the info needed to draw the one
+ * model that stands for the whole group (pieces without it are collision only).
+ */
+export type Obstacle = {
+  x: number;
+  z: number;
+  halfX: number;
+  halfZ: number;
+  kind: ObstacleKind;
+  render?: { x: number; z: number; yaw: number; length: number };
+};
+
+/**
+ * Interactive set pieces placed in a level.
+ * - arcTrap: tesla coil that charges on a cycle, then arcs lightning into every actor in range.
+ * - pressureStack: shoot or blast it to overload it into an explosion; it vents, then re-arms.
+ * - rechargePad: stand on it to refill shield and energy (it has its own charge).
+ */
+export type DeviceKind = 'arcTrap' | 'pressureStack' | 'rechargePad';
+export type DeviceDef = { kind: DeviceKind; x: number; z: number; offset?: number };
 
 export type HazardKind = 'toxic' | 'vent';
 export type Hazard = { x: number; z: number; radius: number; kind: HazardKind; offset: number };
@@ -47,10 +70,45 @@ export type LevelDef = {
   theme: LevelTheme;
   obstacles: Obstacle[];
   hazards: Hazard[];
+  devices: DeviceDef[];
+  /** Angles (radians) of the spawn gates set into the perimeter wall. */
+  gates: number[];
   roundZeroMiniBoss?: 'teowerine';
   waves: Wave[];
   boss: BossSpec;
 };
+
+/**
+ * A curved cover wall (one `wall_arc` model) centred at (x, z), its hollow
+ * facing `yaw` (radians, 0 = +x). Collision is a row of small boxes along it.
+ */
+export function arcWall(x: number, z: number, yaw: number, length = 3.2): Obstacle[] {
+  const pieces = 4;
+  const tangentX = -Math.sin(yaw);
+  const tangentZ = Math.cos(yaw);
+  return Array.from({ length: pieces }, (_, index) => {
+    const along = (index / (pieces - 1) - .5) * (length - .5);
+    // The model bows away from its hollow side; follow that bow so cover matches the mesh.
+    const bow = .14 * (1 - Math.pow((index / (pieces - 1)) * 2 - 1, 2));
+    return {
+      x: x + tangentX * along - Math.cos(yaw) * bow,
+      z: z + tangentZ * along - Math.sin(yaw) * bow,
+      halfX: .32,
+      halfZ: .32,
+      kind: 'arc' as const,
+      render: index === 0 ? { x, z, yaw, length } : undefined,
+    };
+  });
+}
+
+/** Collision for static devices, so actors walk around them instead of through. */
+export function deviceBlockers(devices: DeviceDef[]): Obstacle[] {
+  return devices
+    .filter((device) => device.kind !== 'rechargePad')
+    .map((device) => ({ x: device.x, z: device.z, halfX: .55, halfZ: .55, kind: 'device' as const }));
+}
+
+const evenGates = (count: number, phase = 0) => Array.from({ length: count }, (_, index) => phase + (index / count) * Math.PI * 2);
 
 const ring = (count: number, radius: number, halfX: number, halfZ: number, kind: Obstacle['kind'], phase = 0): Obstacle[] =>
   Array.from({ length: count }, (_, index) => {
@@ -58,12 +116,61 @@ const ring = (count: number, radius: number, halfX: number, halfZ: number, kind:
     return { x: Math.cos(angle) * radius, z: Math.sin(angle) * radius, halfX, halfZ, kind };
   });
 
+const PI = Math.PI;
+
+const DEVICES_1: DeviceDef[] = [
+  { kind: 'rechargePad', x: -9, z: -5.5 },
+  { kind: 'rechargePad', x: 9, z: 5.5 },
+  { kind: 'pressureStack', x: -4.6, z: -6.2 },
+  { kind: 'pressureStack', x: 4.6, z: 6.4 },
+  { kind: 'arcTrap', x: -8.5, z: 5, offset: 0 },
+  { kind: 'arcTrap', x: 8.5, z: -5, offset: 3 },
+];
+const DEVICES_2: DeviceDef[] = [
+  { kind: 'rechargePad', x: -11.2, z: 3.2 },
+  { kind: 'rechargePad', x: 4.5, z: 10.5 },
+  { kind: 'pressureStack', x: 3.5, z: -3.2 },
+  { kind: 'pressureStack', x: -3.5, z: 3.2 },
+  { kind: 'pressureStack', x: 0, z: 9.6 },
+  { kind: 'arcTrap', x: -2.8, z: -8.8, offset: 0 },
+  { kind: 'arcTrap', x: 5.5, z: -7.8, offset: 2.5 },
+];
+const DEVICES_3: DeviceDef[] = [
+  { kind: 'rechargePad', x: -10.5, z: -3 },
+  { kind: 'rechargePad', x: 10.5, z: 3 },
+  { kind: 'pressureStack', x: 0, z: -5.5 },
+  { kind: 'pressureStack', x: -5.6, z: -2.4 },
+  { kind: 'arcTrap', x: -7, z: 0, offset: 0 },
+  { kind: 'arcTrap', x: 7, z: 0, offset: 2.8 },
+];
+const DEVICES_4: DeviceDef[] = [
+  { kind: 'rechargePad', x: 0, z: -6 },
+  { kind: 'rechargePad', x: 11.5, z: -2.5 },
+  { kind: 'pressureStack', x: -6.5, z: 2.5 },
+  { kind: 'pressureStack', x: 6.5, z: 2.5 },
+  { kind: 'arcTrap', x: 10.6, z: 4.4, offset: 0 },
+  { kind: 'arcTrap', x: -4.4, z: 10.6, offset: 1.4 },
+  { kind: 'arcTrap', x: -10.6, z: -4.4, offset: 2.8 },
+  { kind: 'arcTrap', x: 4.4, z: -10.6, offset: 4.2 },
+];
+const DEVICES_5: DeviceDef[] = [
+  { kind: 'rechargePad', x: -7, z: 0 },
+  { kind: 'rechargePad', x: 3, z: -13 },
+  { kind: 'pressureStack', x: 7, z: 0 },
+  { kind: 'pressureStack', x: -3.5, z: 6.06 },
+  { kind: 'pressureStack', x: -3.5, z: -6.06 },
+  { kind: 'arcTrap', x: 6.25, z: 10.8, offset: 0 },
+  { kind: 'arcTrap', x: -6.25, z: 10.8, offset: 1.5 },
+  { kind: 'arcTrap', x: -6.25, z: -10.8, offset: 3 },
+  { kind: 'arcTrap', x: 6.25, z: -10.8, offset: 4.5 },
+];
+
 export const LEVELS: LevelDef[] = [
   {
     id: 1,
     name: 'The Concrete Ring',
     subtitle: 'Sector 07 // Holding pen',
-    briefing: 'The sleepers are waking up. Learn the ring, clear the waves, and put down the Warden.',
+    briefing: 'Learn the ring: shoot the pressure stacks to blow up crowds, lure sleepers into the arc traps, and stand on a recharge pad to refill shield and energy.',
     radius: 13,
     friction: 1,
     theme: {
@@ -79,8 +186,11 @@ export const LEVELS: LevelDef[] = [
       { x: 0, z: 7, halfX: .45, halfZ: .45, kind: 'crate' },
       { x: -8, z: 0, halfX: .45, halfZ: .45, kind: 'crate' },
       { x: 8, z: 0, halfX: .45, halfZ: .45, kind: 'crate' },
+      ...deviceBlockers(DEVICES_1),
     ],
     hazards: [],
+    devices: DEVICES_1,
+    gates: evenGates(4),
     roundZeroMiniBoss: 'teowerine',
     waves: [
       { count: 8, mix: { walker: 1 }, concurrent: 6 },
@@ -93,7 +203,7 @@ export const LEVELS: LevelDef[] = [
     id: 2,
     name: 'Flooded Yards',
     subtitle: 'Sector 11 // Drainage basin',
-    briefing: 'Toxic runoff pools slow and burn anything that wades in. Spitters lob acid from range - keep moving.',
+    briefing: 'Toxic runoff pools slow and burn anything that wades in. Spitters lob acid from range - use the curved walls as cover and keep moving.',
     radius: 14,
     friction: 1,
     theme: {
@@ -105,6 +215,10 @@ export const LEVELS: LevelDef[] = [
       { x: 0, z: 0, halfX: 1.1, halfZ: .32, kind: 'barrier' },
       { x: -10, z: -4, halfX: .45, halfZ: .45, kind: 'crate' },
       { x: 10, z: 4, halfX: .45, halfZ: .45, kind: 'crate' },
+      ...arcWall(10.5, 0, PI),
+      ...arcWall(-10.5, 0, 0),
+      ...arcWall(0, -10.8, PI / 2),
+      ...deviceBlockers(DEVICES_2),
     ],
     hazards: [
       { x: -5.5, z: -6.5, radius: 2.1, kind: 'toxic', offset: 0 },
@@ -112,6 +226,8 @@ export const LEVELS: LevelDef[] = [
       { x: 7.4, z: -5, radius: 1.6, kind: 'toxic', offset: 0 },
       { x: -7.2, z: 5.2, radius: 1.8, kind: 'toxic', offset: 0 },
     ],
+    devices: DEVICES_2,
+    gates: evenGates(4, PI / 4),
     waves: [
       { count: 12, mix: { walker: 3, spitter: 1 }, concurrent: 8 },
       { count: 16, mix: { walker: 2, runner: 1, spitter: 1 }, concurrent: 10 },
@@ -123,7 +239,7 @@ export const LEVELS: LevelDef[] = [
     id: 3,
     name: 'Ember Foundry',
     subtitle: 'Sector 19 // Smelting floor',
-    briefing: 'Floor vents erupt on a cycle. Watch for the glow, lure brutes into the fire, and never stand still on a vent.',
+    briefing: 'Floor vents erupt and arc traps fire on a cycle. Watch for the glow, lure brutes into both, and never stand still on a vent.',
     radius: 14.5,
     friction: 1,
     theme: {
@@ -136,6 +252,9 @@ export const LEVELS: LevelDef[] = [
       { x: 0, z: -8.4, halfX: 2, halfZ: .32, kind: 'barrier' },
       { x: 0, z: 8.4, halfX: 2, halfZ: .32, kind: 'barrier' },
       ...ring(4, 10, .45, .45, 'crate', Math.PI / 4),
+      ...arcWall(0, -11.6, PI / 2),
+      ...arcWall(0, 11.6, -PI / 2),
+      ...deviceBlockers(DEVICES_3),
     ],
     hazards: [
       { x: 0, z: 0, radius: 1.7, kind: 'vent', offset: 0 },
@@ -144,6 +263,8 @@ export const LEVELS: LevelDef[] = [
       { x: 7, z: -5, radius: 1.5, kind: 'vent', offset: .7 },
       { x: -7, z: 5, radius: 1.5, kind: 'vent', offset: 2.9 },
     ],
+    devices: DEVICES_3,
+    gates: evenGates(4, PI / 4),
     waves: [
       { count: 14, mix: { walker: 2, brute: 1 }, concurrent: 9 },
       { count: 18, mix: { walker: 2, runner: 1, brute: 1, spitter: 1 }, concurrent: 11 },
@@ -155,7 +276,7 @@ export const LEVELS: LevelDef[] = [
     id: 4,
     name: 'Frost Vault',
     subtitle: 'Sector 23 // Cold storage',
-    briefing: 'The floor is glazed with ice - momentum carries you further than you think. Runners hunt in packs here.',
+    briefing: 'The floor is glazed with ice and ringed with arc traps - momentum carries you further than you think. Runners hunt in packs here.',
     radius: 15,
     friction: .32,
     theme: {
@@ -165,8 +286,13 @@ export const LEVELS: LevelDef[] = [
     obstacles: [
       ...ring(8, 8.6, .55, .55, 'pillar'),
       ...ring(3, 4, 1.1, .32, 'barrier', Math.PI / 2),
+      ...arcWall(Math.cos(PI * .375) * 12, Math.sin(PI * .375) * 12, PI * 1.375),
+      ...arcWall(Math.cos(PI * 1.375) * 12, Math.sin(PI * 1.375) * 12, PI * .375),
+      ...deviceBlockers(DEVICES_4),
     ],
     hazards: [],
+    devices: DEVICES_4,
+    gates: evenGates(4),
     waves: [
       { count: 16, mix: { runner: 3, walker: 1 }, concurrent: 10 },
       { count: 20, mix: { runner: 3, spitter: 1, brute: 1 }, concurrent: 12 },
@@ -178,7 +304,7 @@ export const LEVELS: LevelDef[] = [
     id: 5,
     name: 'The Core',
     subtitle: 'Sector 00 // Origin chamber',
-    briefing: 'Everything that ever crawled out of the ring started here. Toxic seepage, live vents, and the Hollow King.',
+    briefing: 'Everything that ever crawled out of the ring started here. Toxic seepage, live vents, four arc traps and the Hollow King.',
     radius: 16,
     friction: .9,
     theme: {
@@ -188,6 +314,9 @@ export const LEVELS: LevelDef[] = [
     obstacles: [
       ...ring(6, 9.5, .6, .6, 'pillar', Math.PI / 6),
       ...ring(4, 5.2, 1.2, .32, 'barrier', Math.PI / 4),
+      ...arcWall(Math.cos(PI * 5 / 6) * 13.2, Math.sin(PI * 5 / 6) * 13.2, -PI / 6),
+      ...arcWall(Math.cos(-PI / 6) * 13.2, Math.sin(-PI / 6) * 13.2, PI * 5 / 6),
+      ...deviceBlockers(DEVICES_5),
     ],
     hazards: [
       { x: 0, z: 0, radius: 1.8, kind: 'vent', offset: 0 },
@@ -196,6 +325,8 @@ export const LEVELS: LevelDef[] = [
       { x: 0, z: -11.5, radius: 1.5, kind: 'vent', offset: 1.6 },
       { x: 0, z: 11.5, radius: 1.5, kind: 'vent', offset: 3.1 },
     ],
+    devices: DEVICES_5,
+    gates: evenGates(4),
     waves: [
       { count: 18, mix: { walker: 2, runner: 2, spitter: 1, brute: 1 }, concurrent: 12 },
       { count: 24, mix: { walker: 1, runner: 2, spitter: 2, brute: 2 }, concurrent: 13 },

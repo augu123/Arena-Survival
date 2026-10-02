@@ -4,6 +4,7 @@ import {
   PERKS,
   SHOP_ITEMS,
   xpForLevel,
+  type DeviceKind,
   type EnemyKind,
   type Hazard,
   type LevelDef,
@@ -115,12 +116,35 @@ export type Enemy = {
 export type Bullet = { id: number; x: number; y: number; z: number; vx: number; vz: number; life: number; damage: number; crit: boolean; pierce: number; hits: number[] };
 export type HostileShot = { id: number; x: number; y: number; z: number; vx: number; vz: number; life: number; damage: number; kind: 'acid' | 'fire' };
 export type GrenadeProjectile = { id: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; fuse: number; spin: number };
-export type ExplosionKind = 'frag' | 'nova' | 'slam' | 'acid' | 'fire' | 'levelup' | 'melee';
+export type ExplosionKind = 'frag' | 'nova' | 'slam' | 'acid' | 'fire' | 'levelup' | 'melee' | 'stack' | 'pylon';
 export type Explosion = { id: number; kind: ExplosionKind; x: number; z: number; life: number; duration: number; radius: number };
 export type Telegraph = { id: number; x: number; z: number; radius: number; life: number; duration: number };
 export type LootKind = 'gold' | 'health' | 'ammo' | 'energy';
 export type Loot = { id: number; kind: LootKind; x: number; y: number; z: number; vx: number; vy: number; vz: number; value: number; phase: number; life: number };
 export type Floater = { id: number; x: number; y: number; z: number; text: string; tone: 'hit' | 'crit' | 'player' | 'heal' | 'gold' | 'xp'; life: number };
+/** Runtime state for a level device (see DeviceDef in game-levels.ts). */
+export type DeviceState = {
+  id: number;
+  kind: DeviceKind;
+  x: number;
+  z: number;
+  offset: number;
+  /** arcTrap: 0..1 charge build-up. rechargePad: stored charge 0..PAD_CAPACITY. */
+  charge: number;
+  /** pressureStack hit points; it overloads at 0. */
+  health: number;
+  maxHealth: number;
+  /** pressureStack: seconds left venting before it re-arms. arcTrap: discharge flash. */
+  cooldown: number;
+  hitFlash: number;
+  /** rechargePad: someone is drawing from it this frame. */
+  active: boolean;
+  cycle: number;
+};
+/** Boss shield pylon (field_emitter). */
+export type Emitter = { id: number; x: number; z: number; health: number; maxHealth: number; rise: number; hitFlash: number };
+/** A lightning arc, drawn for a few frames. */
+export type Zap = { id: number; x1: number; y1: number; z1: number; x2: number; y2: number; z2: number; life: number; duration: number; tone: 'arc' | 'pylon' };
 export type Particle = { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; duration: number; size: number; color: string };
 
 export type PlayerStats = {
@@ -227,6 +251,13 @@ export type Engine = {
   loot: Loot[];
   floaters: Floater[];
   particles: Particle[];
+  devices: DeviceState[];
+  emitters: Emitter[];
+  zaps: Zap[];
+  /** Per-gate glow (0..1), lit as an enemy comes through it. */
+  gateGlow: number[];
+  /** How many times the boss's shield pylons have been raised (0, 1 or 2). */
+  pylonWave: number;
 };
 
 export type StepEvents = {
@@ -239,6 +270,7 @@ export type StepEvents = {
   telegraphsChanged: boolean;
   lootChanged: boolean;
   floatersChanged: boolean;
+  emittersChanged: boolean;
 };
 
 export type AbilityHud = { cooldown: number; ready: boolean };
@@ -272,7 +304,7 @@ export type HudStats = {
   phase: LevelPhase;
   enemies: number;
   objective: string;
-  boss: { name: string; title: string; health: number; maxHealth: number } | null;
+  boss: { name: string; title: string; health: number; maxHealth: number; shielded: boolean; pylons: number } | null;
   miniBoss: { name: string; title: string; health: number; maxHealth: number } | null;
   nearVehicle: boolean;
   playerDriving: boolean;
@@ -292,6 +324,13 @@ const MAX_RESERVE_AMMO = 360;
 const NOVA_COST = 40;
 const NOVA_COOLDOWN = 7;
 const VENT_PERIOD = 4.5;
+export const ARC_TRAP_PERIOD = 6.5;
+export const ARC_TRAP_CHARGE = 1.6;
+export const ARC_TRAP_RADIUS = 3.4;
+export const STACK_BLAST_RADIUS = 3.8;
+const STACK_REARM = 16;
+export const PAD_CAPACITY = 100;
+export const PAD_RADIUS = 1.05;
 
 let epochSeed = 1;
 
@@ -391,7 +430,28 @@ function blankLevelState(game: Engine) {
   game.loot = [];
   game.floaters = [];
   game.particles = [];
+  game.emitters = [];
+  game.zaps = [];
+  game.pylonWave = 0;
   const level = currentLevel(game);
+  game.gateGlow = level.gates.map(() => 0);
+  game.devices = level.devices.map((device) => {
+    const stackHealth = 45 * (1 + game.levelIndex * .2);
+    return {
+      id: game.nextId++,
+      kind: device.kind,
+      x: device.x,
+      z: device.z,
+      offset: device.offset ?? 0,
+      charge: device.kind === 'rechargePad' ? PAD_CAPACITY : 0,
+      health: stackHealth,
+      maxHealth: stackHealth,
+      cooldown: 0,
+      hitFlash: 0,
+      active: false,
+      cycle: 0,
+    };
+  });
   game.banner = { id: game.nextId++, title: `Level ${level.id} // ${level.name}`, sub: level.subtitle, tone: 'level' };
 }
 
@@ -832,7 +892,9 @@ function objectiveText(game: Engine) {
     }
     case 'intermission': return 'Next wave incoming';
     case 'bossIntro': return 'Something is coming';
-    case 'boss': return `Defeat ${level.boss.name}`;
+    case 'boss': return game.emitters.length > 0
+      ? `Destroy the shield pylons // ${game.emitters.length} left`
+      : `Defeat ${level.boss.name}`;
     case 'cleared': return 'Arena cleared // collect the spoils';
   }
 }
@@ -873,7 +935,9 @@ export const toHud = (game: Engine): HudStats => {
     phase: game.phase,
     enemies: game.enemies.length,
     objective: objectiveText(game),
-    boss: boss ? { name: level.boss.name, title: level.boss.title, health: boss.health, maxHealth: boss.maxHealth } : null,
+    boss: boss
+      ? { name: level.boss.name, title: level.boss.title, health: boss.health, maxHealth: boss.maxHealth, shielded: game.emitters.length > 0, pylons: game.emitters.length }
+      : null,
     miniBoss: miniBoss ? { name: 'Teowerine', title: 'Round 0 // Opening encounter', health: miniBoss.health, maxHealth: miniBoss.maxHealth } : null,
     nearVehicle: game.vehicle.driving || isNearVehicle(game.playerX, game.playerZ, game.vehicle),
     playerDriving: game.vehicle.driving,
@@ -883,8 +947,12 @@ export const toHud = (game: Engine): HudStats => {
       const dz = enemy.z - game.playerZ;
       const rx = dx * cos - dz * sin;
       const rz = dx * sin + dz * cos;
-      return [clamp(rx / 14, -1, 1), clamp(rz / 14, -1, 1), enemy.kind === 'boss' ? 2 : enemy.kind === 'teowerine' || enemy.elite ? 1 : 0];
-    }),
+      return [clamp(rx / 14, -1, 1), clamp(rz / 14, -1, 1), enemy.kind === 'boss' ? 2 : enemy.kind === 'teowerine' || enemy.elite ? 1 : 0] as [number, number, number];
+    }).concat(game.emitters.map((emitter) => {
+      const dx = emitter.x - game.playerX;
+      const dz = emitter.z - game.playerZ;
+      return [clamp((dx * cos - dz * sin) / 14, -1, 1), clamp((dx * sin + dz * cos) / 14, -1, 1), 3] as [number, number, number];
+    })),
     abilities: {
       dash: { cooldown: clamp(game.dashCooldown / dashCooldownMax, 0, 1), ready: game.dashCooldown <= 0 && game.energy >= dashCost(game) },
       nova: { cooldown: clamp(game.novaCooldown / NOVA_COOLDOWN, 0, 1), ready: game.novaCooldown <= 0 && game.energy >= NOVA_COST },
@@ -960,8 +1028,34 @@ function makeEnemy(game: Engine, kind: EnemyKind, x: number, z: number): Enemy {
   };
 }
 
+/** Pick a spawn gate away from the player and return the point at its mouth. */
+function gateSpawnPoint(game: Engine, minPlayerDistance: number, clearance: number) {
+  const level = currentLevel(game);
+  if (level.gates.length === 0) return null;
+  const options = level.gates
+    .map((angle, index) => {
+      const lateral = rand(-.6, .6);
+      const along = level.radius - 1 - clearance;
+      const x = Math.cos(angle) * along - Math.sin(angle) * lateral;
+      const z = Math.sin(angle) * along + Math.cos(angle) * lateral;
+      return { index, x, z, distance: Math.hypot(x - game.playerX, z - game.playerZ) };
+    })
+    .filter((option) => option.distance >= minPlayerDistance
+      && !hitsObstacle(level.obstacles, option.x, option.z, clearance)
+      && !hitsVehicle(game, option.x, option.z, clearance));
+  if (options.length === 0) return null;
+  // Favour the far gates, but not exclusively, so pressure comes from several sides.
+  const weights = options.map((option) => option.distance * option.distance);
+  let roll = Math.random() * weights.reduce((sum, weight) => sum + weight, 0);
+  const pick = options.find((_, index) => (roll -= weights[index]) <= 0) ?? options[0];
+  game.gateGlow[pick.index] = 1;
+  return { x: pick.x, z: pick.z };
+}
+
 function findSpawnPoint(game: Engine, minPlayerDistance: number, clearance = .6) {
   const level = currentLevel(game);
+  const gate = gateSpawnPoint(game, minPlayerDistance, clearance);
+  if (gate) return gate;
   for (let attempt = 0; attempt < 14; attempt += 1) {
     const angle = Math.random() * Math.PI * 2;
     const distance = level.radius - rand(.9, 2.6);
@@ -1095,11 +1189,16 @@ function killEnemy(game: Engine, index: number, events: StepEvents) {
     for (let other = game.enemies.length - 1; other >= 0; other -= 1) killEnemy(game, other, events);
     game.hostileShots = [];
     events.shotsChanged = true;
+    for (const emitter of game.emitters) spawnParticles(game, emitter.x, 1, emitter.z, 18, ['#8ef1ff', '#ffffff'], 3, .08);
+    game.emitters = [];
+    events.emittersChanged = true;
   }
 }
 
 function damageEnemy(game: Engine, enemy: Enemy, amount: number, impulseX: number, impulseZ: number, crit: boolean, events: StepEvents) {
   if (enemy.kind === 'teowerine' && enemy.danceTimer > 0) return;
+  // Shield pylons soak most of the damage aimed at the boss until they're destroyed.
+  if (enemy.id === game.bossId && game.emitters.length > 0) amount *= BOSS_SHIELD_FACTOR;
   if (enemy.spawn > .35) amount *= .5;
   enemy.health -= amount;
   enemy.hitFlash = .16;
@@ -1136,6 +1235,7 @@ function rollDamage(game: Engine, base: number) {
 }
 
 function areaDamage(game: Engine, x: number, z: number, radius: number, amount: number, force: number, events: StepEvents) {
+  damageStructures(game, x, z, radius, amount, events);
   for (let index = game.enemies.length - 1; index >= 0; index -= 1) {
     const enemy = game.enemies[index];
     if (!enemy) continue;
@@ -1197,6 +1297,25 @@ function stepBullets(game: Engine, dt: number, events: StepEvents) {
     bullet.z += bullet.vz * dt;
     bullet.life -= dt;
     let remove = bullet.life <= 0 || Math.hypot(bullet.x, bullet.z) > limit;
+    if (!remove) {
+      for (const emitter of game.emitters) {
+        if (pointSegmentDistance(emitter.x, emitter.z, oldX, oldZ, bullet.x, bullet.z) < .62) {
+          damageEmitter(game, emitter, bullet.damage, events);
+          remove = true;
+          break;
+        }
+      }
+    }
+    if (!remove) {
+      for (const device of game.devices) {
+        if (device.kind !== 'pressureStack') continue;
+        if (pointSegmentDistance(device.x, device.z, oldX, oldZ, bullet.x, bullet.z) < .62) {
+          damageStack(game, device, bullet.damage, events);
+          remove = true;
+          break;
+        }
+      }
+    }
     if (!remove && hitsObstacle(obstacles, bullet.x, bullet.z, .05)) {
       spawnParticles(game, bullet.x, bullet.y, bullet.z, 5, ['#a9f5ff', '#58d9f1', '#879398'], 1.45, .04);
       remove = true;
@@ -1722,6 +1841,8 @@ function stepLevelFlow(game: Engine, dt: number, events: StepEvents) {
         game.bossId = boss.id;
         game.phase = 'boss';
         game.cameraShake = .5;
+        raisePylons(game, events);
+        setBanner(game, level.boss.name, 'Shielded by pylons - destroy them to expose it', 'boss');
       }
       break;
     case 'boss':
@@ -1810,6 +1931,186 @@ function stepLoot(game: Engine, dt: number, events: StepEvents) {
   }
 }
 
+// ── Arena devices and shield pylons ────────────────────────────────────────
+
+const BOSS_SHIELD_FACTOR = .15;
+
+function addZap(game: Engine, from: [number, number, number], to: [number, number, number], tone: Zap['tone']) {
+  game.zaps.push({ id: game.nextId++, x1: from[0], y1: from[1], z1: from[2], x2: to[0], y2: to[1], z2: to[2], life: .32, duration: .32, tone });
+  if (game.zaps.length > 24) game.zaps.splice(0, game.zaps.length - 24);
+}
+
+/** Blasts and melee swings also hit pressure stacks and shield pylons. */
+function damageStructures(game: Engine, x: number, z: number, radius: number, amount: number, events: StepEvents) {
+  for (const device of game.devices) {
+    if (device.kind === 'pressureStack' && Math.hypot(device.x - x, device.z - z) < radius + .5) damageStack(game, device, amount, events);
+  }
+  for (let index = game.emitters.length - 1; index >= 0; index -= 1) {
+    const emitter = game.emitters[index];
+    if (Math.hypot(emitter.x - x, emitter.z - z) < radius + .5) damageEmitter(game, emitter, amount, events);
+  }
+}
+
+function damageStack(game: Engine, device: DeviceState, amount: number, events: StepEvents) {
+  if (device.cooldown > 0 || device.health <= 0) return;
+  device.health -= amount;
+  device.hitFlash = .15;
+  spawnParticles(game, device.x, 1, device.z, 4, ['#ffd38a', '#d9e1df'], 1.6, .05);
+  if (device.health <= 0) explodeStack(game, device, events);
+}
+
+function explodeStack(game: Engine, device: DeviceState, events: StepEvents) {
+  const level = game.levelIndex;
+  device.health = 0;
+  device.cooldown = STACK_REARM;
+  addExplosion(game, 'stack', device.x, device.z, STACK_BLAST_RADIUS, .85, events);
+  addFloater(game, device.x, 2.2, device.z, 'OVERLOAD', 'crit', events);
+  game.cameraShake = Math.max(game.cameraShake, .45);
+  spawnParticles(game, device.x, .6, device.z, 70, ['#ffe2a8', '#ff9a4a', '#ff6a1a', '#9aa3a6'], 6.5, .14, 1.4);
+  const toPlayer = Math.hypot(game.playerX - device.x, game.playerZ - device.z);
+  if (toPlayer < STACK_BLAST_RADIUS && !game.vehicle.driving) {
+    hurtPlayer(game, 26 * (1 + level * .15) * (1 - toPlayer / STACK_BLAST_RADIUS * .5), events, .45);
+    const push = 9 / Math.max(.3, toPlayer);
+    game.playerVX += (game.playerX - device.x) * push;
+    game.playerVZ += (game.playerZ - device.z) * push;
+  }
+  // Chain reactions are intended: the blast can set off neighbouring stacks.
+  areaDamage(game, device.x, device.z, STACK_BLAST_RADIUS, 120 * (1 + level * .25), 10, events);
+}
+
+function damageEmitter(game: Engine, emitter: Emitter, amount: number, events: StepEvents) {
+  emitter.health -= amount;
+  emitter.hitFlash = .14;
+  game.hitMarker = Math.max(game.hitMarker, .7);
+  addFloater(game, emitter.x, 2.3, emitter.z, `${Math.round(amount)}`, 'hit', events);
+  if (emitter.health > 0) return;
+  game.emitters.splice(game.emitters.indexOf(emitter), 1);
+  events.emittersChanged = true;
+  addExplosion(game, 'pylon', emitter.x, emitter.z, 2.4, .7, events);
+  spawnParticles(game, emitter.x, 1.1, emitter.z, 40, ['#8ef1ff', '#d8fbff', '#5a6a70'], 4.5, .1, 1.2);
+  game.cameraShake = Math.max(game.cameraShake, .3);
+  game.score += 150;
+  gainXp(game, 20 + game.levelIndex * 6);
+  game.loot.push({ id: game.nextId++, kind: 'energy', value: 35, x: emitter.x, y: .8, z: emitter.z, vx: 0, vy: 3, vz: 0, phase: 0, life: 26 });
+  events.lootChanged = true;
+  const boss = game.enemies.find((enemy) => enemy.id === game.bossId);
+  if (boss && game.emitters.length === 0) {
+    // Losing the shield staggers the boss: a window to unload on it.
+    boss.stagger = Math.max(boss.stagger, 2.8);
+    boss.slamCharge = 0;
+    boss.vx = 0;
+    boss.vz = 0;
+    game.cameraShake = Math.max(game.cameraShake, .5);
+    setBanner(game, 'Shield down', `${currentLevel(game).boss.name} is exposed - unload on it`, 'good');
+  }
+}
+
+/** Raise the boss's shield pylons around the arena. */
+function raisePylons(game: Engine, events: StepEvents) {
+  const level = currentLevel(game);
+  const count = 2 + (game.levelIndex >= 2 ? 1 : 0) + (game.levelIndex >= 4 ? 1 : 0);
+  const health = 150 * (1 + game.levelIndex * .3);
+  const base = Math.random() * Math.PI * 2;
+  for (let index = 0; index < count; index += 1) {
+    const angle = base + (index / count) * Math.PI * 2;
+    const spot = findFreeSpot(game, Math.cos(angle) * level.radius * .6, Math.sin(angle) * level.radius * .6, .9);
+    game.emitters.push({ id: game.nextId++, x: spot.x, z: spot.z, health, maxHealth: health, rise: 0, hitFlash: 0 });
+    spawnParticles(game, spot.x, .2, spot.z, 20, ['#8ef1ff', '#3a4a52'], 2.5, .09, 1.4);
+  }
+  game.pylonWave += 1;
+  events.emittersChanged = true;
+}
+
+function dischargeArcTrap(game: Engine, device: DeviceState, events: StepEvents) {
+  const coil: [number, number, number] = [device.x, 1.55, device.z];
+  device.cooldown = .35;
+  spawnParticles(game, device.x, 1.5, device.z, 24, ['#d8fbff', '#8ef1ff', '#ffb36b'], 3.5, .06, 1.2);
+  let arcs = 0;
+  for (const enemy of [...game.enemies]) {
+    if (arcs >= 8 || !game.enemies.includes(enemy) || enemy.spawn > 0) continue;
+    const dx = enemy.x - device.x;
+    const dz = enemy.z - device.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance > ARC_TRAP_RADIUS + enemy.radius) continue;
+    arcs += 1;
+    addZap(game, coil, [enemy.x, 1.1 * enemy.scale, enemy.z], 'arc');
+    const push = 4 / Math.max(distance, .3);
+    damageEnemy(game, enemy, 70 * (1 + game.levelIndex * .25), dx * push, dz * push, false, events);
+    if (game.enemies.includes(enemy) && enemy.kind !== 'boss') enemy.stagger = Math.max(enemy.stagger, .6);
+  }
+  const toPlayer = Math.hypot(game.playerX - device.x, game.playerZ - device.z);
+  if (toPlayer < ARC_TRAP_RADIUS && game.dying <= 0 && !game.vehicle.driving) {
+    addZap(game, coil, [game.playerX, 1.2, game.playerZ], 'arc');
+    hurtPlayer(game, 18 * (1 + game.levelIndex * .12), events, .3);
+  }
+  if (arcs === 0 && toPlayer >= ARC_TRAP_RADIUS) {
+    // Nothing in range: crackle into the floor so the discharge still reads.
+    for (let index = 0; index < 3; index += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      addZap(game, coil, [device.x + Math.cos(angle) * 1.8, .05, device.z + Math.sin(angle) * 1.8], 'arc');
+    }
+  }
+}
+
+function stepDevices(game: Engine, dt: number, events: StepEvents) {
+  for (let index = 0; index < game.gateGlow.length; index += 1) game.gateGlow[index] = Math.max(0, game.gateGlow[index] - dt * .9);
+  for (let index = game.zaps.length - 1; index >= 0; index -= 1) {
+    game.zaps[index].life -= dt;
+    if (game.zaps[index].life <= 0) game.zaps.splice(index, 1);
+  }
+  for (const emitter of game.emitters) {
+    emitter.rise = Math.min(1, emitter.rise + dt / 1.4);
+    emitter.hitFlash = Math.max(0, emitter.hitFlash - dt);
+  }
+  const boss = game.enemies.find((enemy) => enemy.id === game.bossId);
+  if (boss && game.pylonWave === 1 && game.emitters.length === 0 && boss.health < boss.maxHealth * .4) {
+    raisePylons(game, events);
+    setBanner(game, 'The shield reforms', 'New pylons are rising - take them down', 'boss');
+  }
+
+  const alive = game.dying <= 0 && !game.vehicle.driving;
+  for (const device of game.devices) {
+    device.hitFlash = Math.max(0, device.hitFlash - dt);
+    const toPlayer = Math.hypot(game.playerX - device.x, game.playerZ - device.z);
+    if (device.kind === 'arcTrap') {
+      device.cooldown = Math.max(0, device.cooldown - dt);
+      const clock = game.time + device.offset;
+      const t = clock % ARC_TRAP_PERIOD;
+      device.charge = t > ARC_TRAP_PERIOD - ARC_TRAP_CHARGE ? (t - (ARC_TRAP_PERIOD - ARC_TRAP_CHARGE)) / ARC_TRAP_CHARGE : 0;
+      const cycle = Math.floor(clock / ARC_TRAP_PERIOD);
+      if (cycle !== device.cycle) {
+        device.cycle = cycle;
+        dischargeArcTrap(game, device, events);
+      }
+      if (device.charge > 0 && Math.random() < dt * 12 * device.charge) {
+        spawnParticles(game, device.x + rand(-.3, .3), 1.5, device.z + rand(-.3, .3), 1, ['#d8fbff', '#8ef1ff'], .6, .04, .6);
+      }
+      if (alive && device.charge > 0 && toPlayer < ARC_TRAP_RADIUS) game.hazardTag = 'ARC TRAP CHARGING';
+    } else if (device.kind === 'pressureStack') {
+      if (device.cooldown > 0) {
+        device.cooldown = Math.max(0, device.cooldown - dt);
+        if (Math.random() < dt * 9) spawnParticles(game, device.x, 1.4, device.z, 1, ['#c9d3d6', '#9aa3a6'], .4, .1, 2.2);
+        if (device.cooldown === 0) device.health = device.maxHealth;
+      }
+      device.charge = device.cooldown > 0 ? 0 : 1 - device.health / device.maxHealth;
+    } else {
+      const needs = game.shield < game.stats.maxShield || game.energy < game.stats.maxEnergy || game.health < game.stats.maxHealth;
+      if (alive && toPlayer < PAD_RADIUS && needs && device.charge > 1) {
+        device.active = true;
+        device.charge = Math.max(0, device.charge - 26 * dt);
+        game.shield = Math.min(game.stats.maxShield, game.shield + 18 * dt);
+        game.energy = Math.min(game.stats.maxEnergy, game.energy + 22 * dt);
+        game.health = Math.min(game.stats.maxHealth, game.health + 4 * dt);
+        game.hazardTag = 'RECHARGING';
+        if (Math.random() < dt * 14) spawnParticles(game, game.playerX + rand(-.4, .4), .1, game.playerZ + rand(-.4, .4), 1, ['#8ef1ff', '#d8fbff'], .2, .05, 1.8);
+      } else {
+        device.active = false;
+        device.charge = Math.min(PAD_CAPACITY, device.charge + 7 * dt);
+      }
+    }
+  }
+}
+
 function stepHazards(game: Engine, dt: number, events: StepEvents) {
   game.hazardTag = null;
   let slow = 1;
@@ -1855,6 +2156,7 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
     telegraphsChanged: false,
     lootChanged: false,
     floatersChanged: false,
+    emittersChanged: false,
   };
   if (game.ended) return events;
   const dt = clamp(rawDelta, 0, .05);
@@ -2040,6 +2342,7 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
       damageEnemy(game, enemy, hit.amount, aimNX * 9, aimNZ * 9, hit.crit, events);
       connected = true;
     }
+    damageStructures(game, game.playerX + aimNX * 1.1, game.playerZ + aimNZ * 1.1, reach * .6, 32 * game.stats.meleeMult * game.stats.damageMult, events);
     addExplosion(game, 'melee', game.playerX + aimNX * 1.1, game.playerZ + aimNZ * 1.1, reach, .28, events);
     if (connected) game.cameraShake = Math.max(game.cameraShake, .18);
   }
@@ -2076,6 +2379,7 @@ export function stepGame(game: Engine, input: InputState, rawDelta: number): Ste
   stepHostileShots(game, dt, events);
   stepEnemies(game, dt, events);
   stepLevelFlow(game, dt, events);
+  stepDevices(game, dt, events);
   stepLoot(game, dt, events);
 
   for (let index = game.corpses.length - 1; index >= 0; index -= 1) {

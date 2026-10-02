@@ -231,7 +231,9 @@ function GameHome() {
               <div className={`crosshair ${hud.hitMarker > .8 ? 'is-crit' : hud.hitMarker > 0 ? 'is-hit' : ''}`} aria-hidden="true">
                 <i /><i /><i /><i />
               </div>
-              {hud.hazard && <div className="hazard-warning">⚠ {hud.hazard}</div>}
+              {hud.hazard && (hud.hazard === 'RECHARGING'
+                ? <div className="hazard-warning is-positive">+ {hud.hazard}</div>
+                : <div className="hazard-warning">⚠ {hud.hazard}</div>)}
               {hud.banner && (
                 <div key={hud.banner.id} className={`level-banner banner-${hud.banner.tone}`}>
                   <strong>{hud.banner.title}</strong>
@@ -269,9 +271,15 @@ function GameHome() {
 
                 <div className="hud-center-cluster">
                   {hud.boss ? (
-                    <section className="boss-panel" data-testid="boss-panel">
+                    <section className={`boss-panel ${hud.boss.shielded ? 'is-shielded' : ''}`} data-testid="boss-panel">
                       <div className="boss-name"><strong>{hud.boss.name}</strong><span>{hud.boss.title}</span></div>
                       <div className="boss-track"><i style={{ width: pct(hud.boss.health, hud.boss.maxHealth) }} /></div>
+                      {hud.boss.shielded && (
+                        <div className="boss-shield" data-testid="boss-shield">
+                          <b>SHIELDED</b> destroy the pylons
+                          <span className="pylon-pips">{Array.from({ length: hud.boss.pylons }, (_, index) => <i key={index} />)}</span>
+                        </div>
+                      )}
                     </section>
                   ) : hud.miniBoss ? (
                     <section className="boss-panel miniboss-panel" data-testid="miniboss-panel">
@@ -303,7 +311,7 @@ function GameHome() {
                       <span className="radar-player" />
                       {hud.radar.map((point, index) => (
                         <i
-                          className={`radar-blip ${point[2] === 2 ? 'boss' : point[2] === 1 ? 'elite' : ''}`}
+                          className={`radar-blip ${point[2] === 3 ? 'pylon' : point[2] === 2 ? 'boss' : point[2] === 1 ? 'elite' : ''}`}
                           key={index}
                           style={{ left: `${Math.max(4, Math.min(96, (point[0] + 1) * 50))}%`, top: `${Math.max(4, Math.min(96, (point[1] + 1) * 50))}%` }}
                         />
